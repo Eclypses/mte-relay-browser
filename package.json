@@ -1,12 +1,11 @@
 {
   "name": "mte-browser-relay",
-  "private": true,
   "version": "0.0.1",
+  "description": "An MTE Relay module that runs in a Browser. It MTE encrypts all networks requests, and depends on a server-side MTE Relay module.",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview"
+    "build": "tsc && vite build"
   },
   "devDependencies": {
     "@rollup/plugin-node-resolve": "^14.1.0",
@@ -31,5 +30,9 @@
     ".": "./dist/index.js",
     "./cjs": "./dist/index.cjs"
   },
-  "main": "./dist/index.js"
+  "main": "./dist/index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Eclypses/mte-relay-browser"
+  }
 }
