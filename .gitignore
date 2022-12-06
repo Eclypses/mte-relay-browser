@@ -26,3 +26,4 @@ dist-ssr
 # Custom
 *.tgz
 package-lock.json
+.npmrc

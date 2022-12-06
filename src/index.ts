@@ -32,6 +32,7 @@ export async function instantiateMteWasm(options: {
     sequenceWindow: -63,
     decoderType: "MKE",
     encoderType: "MKE",
+    keepAlive: 1000,
   });
 }
 
@@ -51,7 +52,6 @@ export async function mteFetch(url: RequestInfo | URL, options: RequestInit) {
     try {
       // check if origin is an MTE Translator
       const originMteId = await requestServerTranslatorId(url);
-      console.log("originMteId", originMteId);
 
       // register origin
       registerOrigin({
@@ -101,7 +101,7 @@ export async function mteFetch(url: RequestInfo | URL, options: RequestInit) {
   if (!response.ok) {
     /**
      * Watch for special status code that triggers a re-pairing event.
-     * If we see statue code 559
+     * If we see status code 559
      * - re-pair with MTE Server Relay
      * - re-encode original request data
      * - re-send request with newly encoded data
@@ -146,17 +146,37 @@ export async function mteFetch(url: RequestInfo | URL, options: RequestInit) {
   const encodedContentTypeHeader = response.headers.get(
     MTE_ENCODED_CONTENT_TYPE_HEADER_NAME
   );
+
   let decodedContentTypeHeader = "application/json";
   if (encodedContentTypeHeader) {
     // @ts-ignore
-    decodedContentTypeHeader = await mteDecode(encodedContentTypeHeader, {
+    const _ContentTypeHeader = await mteDecode(encodedContentTypeHeader, {
       id: `decoder_${originRecord.mteId}`,
       keepAlive: 1000,
       output: "str",
     });
+    if (_ContentTypeHeader) {
+      decodedContentTypeHeader = _ContentTypeHeader;
+    }
   }
 
+  // get response as blob
   const blob = await response.blob();
+
+  // if blob is empty, return early
+  if (blob.size < 1) {
+    response.json = async function () {
+      return null;
+    };
+    response.text = async function () {
+      return "";
+    };
+    response.blob = async function () {
+      return blob;
+    };
+    return response;
+  }
+
   const buffer = await blob.arrayBuffer();
   const u8 = new Uint8Array(buffer);
 
@@ -249,6 +269,7 @@ async function pairWithOrigin(origin: string, originMteId: string) {
     personalization: encoderPersonalizationStr,
     id: `encoder_${originMteId}`,
   });
+
   await createMteDecoder({
     entropy: decoderEntropy,
     nonce: pairResponseData.encoderNonce,
