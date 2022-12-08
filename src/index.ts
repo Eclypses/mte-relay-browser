@@ -32,14 +32,13 @@ export async function instantiateMteWasm(options: {
     sequenceWindow: -63,
     decoderType: "MKE",
     encoderType: "MKE",
-    keepAlive: 1000,
   });
 }
 
 // export network request function
 export async function mteFetch(url: RequestInfo | URL, options: RequestInit) {
   let _options = options || {};
-  const origin = getValidOrigin(url as string);
+  const origin = getValidOrigin(url);
   const originIsRegistered = isRegisteredOrigin(origin);
 
   // if origin is not registered, make OPTIONS requests and register it as MTE available or not
@@ -51,7 +50,7 @@ export async function mteFetch(url: RequestInfo | URL, options: RequestInit) {
   if (!originIsRegistered) {
     try {
       // check if origin is an MTE Translator
-      const originMteId = await requestServerTranslatorId(url);
+      const originMteId = await requestServerTranslatorId(origin);
 
       // register origin
       registerOrigin({
@@ -74,7 +73,7 @@ export async function mteFetch(url: RequestInfo | URL, options: RequestInit) {
   }
 
   // get origin record, which should now exist no matter what
-  const originRecord = getRegisteredOrigin(url as string);
+  let originRecord = getRegisteredOrigin(url as string);
   if (!originRecord) {
     throw Error("No registered origin.");
   }
@@ -112,17 +111,14 @@ export async function mteFetch(url: RequestInfo | URL, options: RequestInit) {
       for (; i < maxAttempts; ++i) {
         try {
           unregisterOrigin(origin);
-          const originMteId = await requestServerTranslatorId(url);
+          const originMteId = await requestServerTranslatorId(origin);
           registerOrigin({
             origin,
             isMteCapable: Boolean(originMteId),
             mteId: originMteId,
           });
-          const originRecord = getRegisteredOrigin(url as string);
-          if (!originRecord?.mteId) {
-            throw Error("Origin is not MTE enabled.");
-          }
-          await pairWithOrigin(originRecord.origin, originRecord.mteId);
+          originRecord = getRegisteredOrigin(origin)!;
+          await pairWithOrigin(originRecord.origin, originRecord.mteId!);
           const encodedOptions = await encodeRequest(_options, originRecord);
           response = await fetch(url, encodedOptions);
 
@@ -216,8 +212,8 @@ function contentTypeIsText(contentType: string) {
  * Make a HEAD request to check for x-mte-id response header,
  * If it exists, we assume the origin is an mte translator.
  */
-async function requestServerTranslatorId(url: RequestInfo | URL) {
-  const response = await fetch(url, {
+async function requestServerTranslatorId(origin: string) {
+  const response = await fetch(origin + "/api/mte-relay", {
     method: "HEAD",
     credentials: "include",
   });
@@ -234,7 +230,7 @@ async function pairWithOrigin(origin: string, originMteId: string) {
   const decoderPersonalizationStr = uuidv4();
   const decoderEcdh = await getEcdh();
 
-  const response = await fetch(`${origin}/mte/pair`, {
+  const response = await fetch(`${origin}/api/mte-pair`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
