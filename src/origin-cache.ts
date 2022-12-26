@@ -21,12 +21,6 @@ export function registerOrigin(
   options: Pick<OriginRecord, "isMteCapable" | "origin" | "mteId">
 ) {
   const _origin = getValidOrigin(options.origin);
-  const module = originMap.get(_origin);
-  if (module) {
-    throw Error(
-      `MTE Module with origin of "${_origin}" is already registered. Unregister the module before re-registering it.`
-    );
-  }
   originMap.set(_origin, {
     origin: _origin,
     latestUse: Date.now(),
