@@ -351,6 +351,8 @@ async function encodeRequest(options: RequestInit, originRecord: OriginRecord) {
                 id: encoderId,
                 output: "B64",
               });
+              // URI encode the filename
+              fileName = encodeURIComponent(fileName);
             }
             const buffer = await value.arrayBuffer();
             const u8 = new Uint8Array(buffer);
