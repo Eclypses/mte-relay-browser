@@ -8,6 +8,7 @@ import {
 import {
   MTE_ID_HEADER,
   MTE_ENCODED_CONTENT_TYPE_HEADER_NAME,
+  MTE_CLIENT_ID_HEADER,
 } from "./constants";
 import {
   getRegisteredOrigin,
@@ -20,6 +21,8 @@ import { getEcdh } from "./utils/ecdh";
 import { getValidOrigin } from "./utils/get-valid-origin";
 import { uuidv4 } from "./utils/uuid";
 import cloneDeep from "lodash.clonedeep";
+
+const MTE_CLIENT_ID = uuidv4();
 
 // export init function
 export async function instantiateMteWasm(options: {
@@ -216,6 +219,9 @@ async function requestServerTranslatorId(origin: string) {
   const response = await fetch(origin + "/api/mte-relay", {
     method: "HEAD",
     credentials: "include",
+    headers: {
+      [MTE_CLIENT_ID_HEADER]: MTE_CLIENT_ID,
+    },
   });
   const originMteId = response.headers.get(MTE_ID_HEADER);
   return originMteId;
@@ -234,6 +240,7 @@ async function pairWithOrigin(origin: string, originMteId: string) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      [MTE_CLIENT_ID_HEADER]: MTE_CLIENT_ID,
     },
     credentials: "include",
     body: JSON.stringify({
@@ -286,6 +293,7 @@ async function encodeRequest(options: RequestInit, originRecord: OriginRecord) {
 
   // encode the content-type header (if it exists)
   const headers = new Headers(_options.headers);
+  headers.append(MTE_CLIENT_ID_HEADER, MTE_CLIENT_ID);
   const originalContentTypeHeader = headers.get("content-type");
   if (originalContentTypeHeader) {
     const encodedHeader = await mteEncode(originalContentTypeHeader, {
