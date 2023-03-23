@@ -8,7 +8,7 @@ Your company's licensed MTE library should be delivered to you as a .tgz file an
 `npm i file:[FILE_NAME_HERE].tgz`
 
 Then, install the MTE Helpers package:\
-`npm i mte-browser-relay`
+`npm i mte-relay-browser`
 
 > Note: This package requires that a licensed copy of the MTE Library is supplied as a peer dependency.
 
@@ -17,7 +17,7 @@ Then, install the MTE Helpers package:\
 MTE uses a Web Assembly (WASM) module to execute encode and decode operations. You must instantiate the MTE WASM module exactly once, and we recommend doing it as early as possible in your application.
 
 ```js
-import { instantiateMteWasm } from "mte-browser-relay";
+import { instantiateMteWasm } from "mte-relay-browser";
 
 // Initialize MTE WASM module with credentials
 await instantiateMteWasm({
@@ -31,21 +31,20 @@ await instantiateMteWasm({
 The library exposes a function called `mteFetch` that accepts the same arguments as the native [fetch API](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch) in modern browsers. However, unlike a normal fetch, it will first attempt to establish a connection with a server-side MTE relay, and then MTE encrypt all data sent between the two end points. Encrypting and Decrypting data is handled automatically, and mteFetch can be used as a normal fetch.
 
 ```js
-import { instantiateMteWasm, mteFetch } from "mte-browser-relay";
-
-// Initialize MTE WASM module with credentials
-await instantiateMteWasm({
-  licenseCompany: "COMPANY_NAME_HERE",
-  licenseKey: "LICENSE_KEY_HERE",
-});
+import { mteFetch } from "mte-relay-browser";
 
 // use mteFetch to handle encoding data and sending/receiving it
-const response = await mteFetch("/api/login", {
-  method: "POST",
-  body: JSON.stringify({
-    email: "john@email.com",
-    password: "password",
-  }),
-});
+const response = await mteFetch(
+  "https://mte-relay-server.example.com/api/login",
+  {
+    method: "POST",
+    body: JSON.stringify({
+      email: "john@email.com",
+      password: "password",
+    }),
+  }
+);
 const data = await response.json();
 ```
+
+> Note: This library is designed to only communicate with a properly configured [MTE Relay Server]

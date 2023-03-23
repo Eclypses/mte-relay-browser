@@ -12,15 +12,17 @@ import {
 } from "./constants";
 import {
   getRegisteredOrigin,
-  isRegisteredOrigin,
-  OriginRecord,
+  MteRelayRecord,
   registerOrigin,
   unregisterOrigin,
 } from "./origin-cache";
-import { getEcdh } from "./utils/ecdh";
-import { getValidOrigin } from "./utils/get-valid-origin";
 import { uuidv4 } from "./utils/uuid";
+import { getEcdh } from "./utils/ecdh";
 import cloneDeep from "lodash.clonedeep";
+import { MteRelayError } from "./utils/mte-relay-error";
+import { getValidOrigin } from "./utils/get-valid-origin";
+
+export { MteRelayError } from "./utils/mte-relay-error";
 
 const MTE_CLIENT_ID = uuidv4();
 
@@ -35,55 +37,34 @@ export async function instantiateMteWasm(options: {
     sequenceWindow: -63,
     decoderType: "MKE",
     encoderType: "MKE",
+    keepAlive: Infinity,
   });
 }
 
 // export network request function
-export async function mteFetch(url: RequestInfo | URL, options: RequestInit) {
+export async function mteFetch(
+  url: Request | RequestInfo | URL,
+  options: RequestInit
+) {
+  if (url instanceof Request) {
+  }
   let _options = options || {};
-  const origin = getValidOrigin(url);
-  const originIsRegistered = isRegisteredOrigin(origin);
+  let mteRelayOrigin = getRegisteredOrigin(url);
 
-  // if origin is not registered, make OPTIONS requests and register it as MTE available or not
   /**
    * If origin is not yet registered,
-   * make an OPTIONS request to see if it is MTE capable,
-   * register this origin as MTE (non-)capable
+   * - check if origin is an MTE Relay server
+   * - register origin
+   * - pair with origin
    */
-  if (!originIsRegistered) {
-    try {
-      // check if origin is an MTE Translator
-      const originMteId = await requestServerTranslatorId(origin);
-
-      // register origin
-      registerOrigin({
-        origin,
-        isMteCapable: Boolean(originMteId),
-        mteId: originMteId,
-      });
-
-      // pair with server if it is mte capable
-      if (originMteId) {
-        await pairWithOrigin(origin, originMteId);
-      }
-    } catch (err) {
-      registerOrigin({
-        origin,
-        isMteCapable: false,
-        mteId: null,
-      });
-    }
-  }
-
-  // get origin record, which should now exist no matter what
-  let originRecord = getRegisteredOrigin(url as string);
-  if (!originRecord) {
-    throw Error("No registered origin.");
-  }
-
-  // if origin is NOT mte capable, send normal request
-  if (!originRecord.isMteCapable) {
-    return fetch(url, options);
+  if (!mteRelayOrigin) {
+    const origin = getValidOrigin(url);
+    const originMteId = await requestServerTranslatorId(origin);
+    mteRelayOrigin = registerOrigin({
+      origin,
+      mteId: originMteId,
+    });
+    await pairWithOrigin(origin, originMteId);
   }
 
   // include cookies with every request, they are tracked by the server relay
@@ -92,7 +73,7 @@ export async function mteFetch(url: RequestInfo | URL, options: RequestInit) {
   /**
    * MTE Encode Headers and Body (if they exist)
    */
-  const encodedOptions = await encodeRequest(_options, originRecord);
+  const encodedOptions = await encodeRequest(_options, mteRelayOrigin);
 
   /**
    * Send the request
@@ -115,14 +96,12 @@ export async function mteFetch(url: RequestInfo | URL, options: RequestInit) {
         try {
           unregisterOrigin(origin);
           const originMteId = await requestServerTranslatorId(origin);
-          registerOrigin({
+          mteRelayOrigin = registerOrigin({
             origin,
-            isMteCapable: Boolean(originMteId),
             mteId: originMteId,
           });
-          originRecord = getRegisteredOrigin(origin)!;
-          await pairWithOrigin(originRecord.origin, originRecord.mteId!);
-          const encodedOptions = await encodeRequest(_options, originRecord);
+          await pairWithOrigin(mteRelayOrigin.origin, mteRelayOrigin.mteId);
+          const encodedOptions = await encodeRequest(_options, mteRelayOrigin);
           response = await fetch(url, encodedOptions);
 
           // if the response is now successful, end loop
@@ -137,7 +116,8 @@ export async function mteFetch(url: RequestInfo | URL, options: RequestInit) {
     }
 
     if (!response.ok) {
-      throw Error(`${response.status} - ${response.statusText}`);
+      let message = response.statusText || "Request not ok.";
+      throw new Error(message);
     }
   }
 
@@ -150,7 +130,7 @@ export async function mteFetch(url: RequestInfo | URL, options: RequestInit) {
   if (encodedContentTypeHeader) {
     // @ts-ignore
     const _ContentTypeHeader = await mteDecode(encodedContentTypeHeader, {
-      id: `decoder_${originRecord.mteId}`,
+      id: `decoder_${mteRelayOrigin.mteId}`,
       keepAlive: 1000,
       output: "str",
     });
@@ -184,7 +164,7 @@ export async function mteFetch(url: RequestInfo | URL, options: RequestInit) {
     : "Uint8Array";
 
   const decodedBody = await mteDecode(u8, {
-    id: `decoder_${originRecord.mteId}`,
+    id: `decoder_${mteRelayOrigin.mteId}`,
     // @ts-ignore
     output: _output,
   });
@@ -223,7 +203,13 @@ async function requestServerTranslatorId(origin: string) {
       [MTE_CLIENT_ID_HEADER]: MTE_CLIENT_ID,
     },
   });
+  if (!response.ok) {
+    throw new MteRelayError("Origin is not an MTE Relay origin.");
+  }
   const originMteId = response.headers.get(MTE_ID_HEADER);
+  if (!originMteId) {
+    throw new MteRelayError("Origin is not an MTE Relay origin.");
+  }
   return originMteId;
 }
 
@@ -251,7 +237,7 @@ async function pairWithOrigin(origin: string, originMteId: string) {
     }),
   });
   if (!response.ok) {
-    throw Error("Failed to pair with server MTE Translator.");
+    throw new MteRelayError("Failed to pair with server MTE Translator.");
   }
 
   // convert response to json
@@ -284,7 +270,10 @@ async function pairWithOrigin(origin: string, originMteId: string) {
 /**
  * encode headers and body of request
  */
-async function encodeRequest(options: RequestInit, originRecord: OriginRecord) {
+async function encodeRequest(
+  options: RequestInit,
+  originRecord: MteRelayRecord
+) {
   // clone original into new copy and modify copy
   const _options = cloneDeep(options);
 
@@ -377,7 +366,7 @@ async function encodeRequest(options: RequestInit, originRecord: OriginRecord) {
 
           // throw error if we don't know what the value type is
           console.log(typeof value, value);
-          throw Error("Unknown value type.");
+          throw new MteRelayError("Unknown value to encode.");
         }
 
         // set the value of the body to our newly encoded formData
@@ -427,7 +416,7 @@ async function encodeRequest(options: RequestInit, originRecord: OriginRecord) {
 
       // handle readable stream
       if (_options.body instanceof ReadableStream) {
-        throw Error("TODO: Handle readable streams...");
+        throw new Error("Readable streams are not supported, yet.");
       }
     })();
   }

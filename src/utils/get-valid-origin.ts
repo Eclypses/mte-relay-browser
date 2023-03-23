@@ -1,5 +1,6 @@
 // regex to identify origin scheme:hostname[:port]
 const originRegex = /^[\w-]+:\/*\[?[\p{L}\d\\.:_-]+\]?(?::\d*)?/u;
+
 /**
  * Takes in a string and returns the origin, or throws an error if no origin is found.
  * @param url A string that include an origin or type: scheme:host[:port]
@@ -25,7 +26,7 @@ export function getValidOrigin(url: RequestInfo | URL): string {
     if (_type === "string") {
       return (_url = url);
     }
-    throw Error(
+    throw new Error(
       `Invalid url type. Expected URL|Request|String but got "${_type}".`
     );
   })();
@@ -41,5 +42,5 @@ export function getValidOrigin(url: RequestInfo | URL): string {
     return window.location.origin;
   }
 
-  throw Error(`Origin not found in string: "${_url}".`);
+  throw new Error(`Origin not found in string: ${_url}`);
 }

@@ -1,66 +1,44 @@
 import { getValidOrigin } from "./utils/get-valid-origin";
 
 /**
- * Write a cache that maintains a list of Origins this session has communicated with
- * Every minute, review cache and remove entries past certain age (30m?)
+ * Write a cache that maintains a list of MTE Relay Servers this session has communicated with
  */
 
-export type OriginRecord = {
+export type MteRelayRecord = {
   origin: string;
-  latestUse: number;
-  isMteCapable: boolean;
-  mteId: string | null;
+  mteId: string;
 };
 
-const originMap = new Map<string, OriginRecord>();
+const mteRelayMap = new Map<string, MteRelayRecord>();
 
 /**
- * Register a new MTE module by it's origin.
+ * Register a new MTE Relay server by it's origin.
  */
-export function registerOrigin(
-  options: Pick<OriginRecord, "isMteCapable" | "origin" | "mteId">
-) {
+export function registerOrigin(options: {
+  origin: RequestInfo | URL;
+  mteId: string;
+}) {
   const _origin = getValidOrigin(options.origin);
-  originMap.set(_origin, {
+  let record: MteRelayRecord = {
     origin: _origin,
-    latestUse: Date.now(),
-    isMteCapable: options.isMteCapable,
-    mteId: options.mteId || null,
-  });
+    mteId: options.mteId,
+  };
+  mteRelayMap.set(_origin, record);
+  return record;
 }
 
 /**
- * Refresh an origin's latestUse timestamp
+ * Check if MTE Relay server exists
  */
-export function refreshOrigin(origin: OriginRecord["origin"]) {
+export function getRegisteredOrigin(origin: RequestInfo | URL) {
   const _origin = getValidOrigin(origin);
-  const module = originMap.get(_origin);
-  if (!module) {
-    throw Error(`No MTE Module registered with origin of "${_origin}"`);
-  }
-  module.latestUse = Date.now();
+  return mteRelayMap.get(_origin);
 }
 
 /**
- * Check if origin exists
+ * Delete a registered MTE Relay server by it's origin.
  */
-export function getRegisteredOrigin(origin: OriginRecord["origin"]) {
+export function unregisterOrigin(origin: RequestInfo | URL) {
   const _origin = getValidOrigin(origin);
-  return originMap.get(_origin);
-}
-
-/**
- * Delete a registered MTE module by it's origin.
- */
-export function unregisterOrigin(origin: OriginRecord["origin"]) {
-  const _origin = getValidOrigin(origin);
-  originMap.delete(_origin);
-}
-
-/**
- * Check if an origin is registered.
- */
-export function isRegisteredOrigin(origin: string) {
-  const _origin = getValidOrigin(origin);
-  return originMap.has(_origin);
+  mteRelayMap.delete(_origin);
 }
