@@ -47,4 +47,4 @@ const response = await mteFetch(
 const data = await response.json();
 ```
 
-> Note: This library is designed to only communicate with a properly configured [MTE Relay Server]
+> Note: This library is designed to only communicate with a properly configured [MTE Relay Server](https://www.npmjs.com/package/mte-relay-server).
