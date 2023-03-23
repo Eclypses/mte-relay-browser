@@ -131,7 +131,6 @@ export async function mteFetch(
     // @ts-ignore
     const _ContentTypeHeader = await mteDecode(encodedContentTypeHeader, {
       id: `decoder_${mteRelayOrigin.mteId}`,
-      keepAlive: 1000,
       output: "str",
     });
     if (_ContentTypeHeader) {
