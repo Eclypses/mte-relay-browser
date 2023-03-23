@@ -70,6 +70,16 @@ export async function mteFetch(
   // include cookies with every request, they are tracked by the server relay
   _options.credentials = "include";
 
+  // add headers if they do not exist
+  const _headers = new Headers(_options.headers || {});
+
+  // add no cache headers
+  _headers.set("Cache-Control", "no-cache");
+  _headers.set("Pragma", "no-cache");
+
+  // set headers
+  _options.headers = _headers;
+
   /**
    * MTE Encode Headers and Body (if they exist)
    */
@@ -199,6 +209,8 @@ async function requestServerTranslatorId(origin: string) {
     method: "HEAD",
     credentials: "include",
     headers: {
+      "Cache-Control": "no-cache",
+      Pragma: "no-cache",
       [MTE_CLIENT_ID_HEADER]: MTE_CLIENT_ID,
     },
   });
@@ -224,6 +236,8 @@ async function pairWithOrigin(origin: string, originMteId: string) {
   const response = await fetch(`${origin}/api/mte-pair`, {
     method: "POST",
     headers: {
+      "Cache-Control": "no-cache",
+      Pragma: "no-cache",
       "Content-Type": "application/json",
       [MTE_CLIENT_ID_HEADER]: MTE_CLIENT_ID,
     },
