@@ -70,8 +70,8 @@ export async function mteFetch(
   // include cookies with every request, they are tracked by the server relay
   _options.credentials = "include";
 
-  // no-cache response
-  _options.cache = "no-cache";
+  // no-store response
+  _options.cache = "no-store";
 
   // add headers if they do not exist
   const _headers = new Headers(_options.headers || {});
@@ -207,7 +207,6 @@ async function requestServerTranslatorId(origin: string) {
   const response = await fetch(origin + "/api/mte-relay", {
     method: "HEAD",
     credentials: "include",
-    cache: "no-cache",
     headers: {
       [MTE_CLIENT_ID_HEADER]: MTE_CLIENT_ID,
     },
@@ -237,7 +236,6 @@ async function pairWithOrigin(origin: string, originMteId: string) {
       "Content-Type": "application/json",
       [MTE_CLIENT_ID_HEADER]: MTE_CLIENT_ID,
     },
-    cache: "no-cache",
     credentials: "include",
     body: JSON.stringify({
       encoderPersonalizationStr,
