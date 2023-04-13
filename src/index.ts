@@ -42,12 +42,7 @@ export async function instantiateMteWasm(options: {
 }
 
 // export network request function
-export async function mteFetch(
-  url: Request | RequestInfo | URL,
-  options: RequestInit
-) {
-  if (url instanceof Request) {
-  }
+export async function mteFetch(url: string, options: RequestInit) {
   let _options = options || {};
   let mteRelayOrigin = getRegisteredOrigin(url);
 
@@ -57,14 +52,14 @@ export async function mteFetch(
    * - register origin
    * - pair with origin
    */
+  const urlOrigin = getValidOrigin(url);
   if (!mteRelayOrigin) {
-    const origin = getValidOrigin(url);
-    const originMteId = await requestServerTranslatorId(origin);
+    const originMteId = await requestServerTranslatorId(urlOrigin);
     mteRelayOrigin = registerOrigin({
-      origin,
+      origin: urlOrigin,
       mteId: originMteId,
     });
-    await pairWithOrigin(origin, originMteId);
+    await pairWithOrigin(urlOrigin, originMteId);
   }
 
   // include cookies with every request, they are tracked by the server relay
@@ -103,10 +98,10 @@ export async function mteFetch(
       let i = 0;
       for (; i < maxAttempts; ++i) {
         try {
-          unregisterOrigin(origin);
-          const originMteId = await requestServerTranslatorId(origin);
+          unregisterOrigin(urlOrigin);
+          const originMteId = await requestServerTranslatorId(urlOrigin);
           mteRelayOrigin = registerOrigin({
-            origin,
+            origin: urlOrigin,
             mteId: originMteId,
           });
           await pairWithOrigin(mteRelayOrigin.origin, mteRelayOrigin.mteId);
