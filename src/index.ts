@@ -86,6 +86,10 @@ export async function mteFetch(url: string, options: RequestInit) {
 
   // handle a bad response
   if (!response.ok) {
+    if (response.status !== 559) {
+      return response;
+    }
+
     /**
      * Watch for special status code that triggers a re-pairing event.
      * If we see status code 559
@@ -113,15 +117,9 @@ export async function mteFetch(url: string, options: RequestInit) {
             break;
           }
         } catch (err) {
-          // if error, try again
-          // console.log(err);
+          console.log(err);
         }
       }
-    }
-
-    if (!response.ok) {
-      let message = response.statusText || "Request not ok.";
-      throw new Error(message);
     }
   }
 
