@@ -1,6 +1,6 @@
 {
   "name": "mte-relay-browser",
-  "version": "0.1.13",
+  "version": "1.0.0",
   "description": "An MTE Relay module that runs in a Browser. It MTE encrypts all networks requests, and depends on a server-side MTE Relay module.",
   "type": "module",
   "scripts": {
@@ -11,17 +11,16 @@
     "@rollup/plugin-node-resolve": "^14.1.0",
     "@rollup/plugin-typescript": "^8.5.0",
     "@types/lodash.clonedeep": "^4.5.7",
-    "mte": "npm:@eclypses/tblackman-llc-star-wars-mte-none-wasm-r-ctr_aes256_df-t64_crc32_seq-16-aes256_ctr-sha256-flen-mke-lic-fc@^3.0.2",
     "tslib": "^2.4.0",
     "typescript": "^4.6.4",
     "vite": "^3.1.0"
   },
   "peerDependencies": {
-    "mte": "2 - 3"
+    "mte": "^3.0.0"
   },
   "dependencies": {
     "lodash.clonedeep": "^4.5.0",
-    "mte-helpers": "^0.1.5"
+    "mte-helpers": "^1.0.0"
   },
   "files": [
     "dist"
