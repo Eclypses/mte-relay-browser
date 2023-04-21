@@ -16,7 +16,7 @@ import {
   registerOrigin,
   unregisterOrigin,
 } from "./origin-cache";
-import { uuidv4 } from "./utils/uuid";
+import { generateRandomId } from "./utils/generate-id";
 import { getEcdh } from "./utils/ecdh";
 import cloneDeep from "lodash.clonedeep";
 import { MteRelayError } from "./utils/mte-relay-error";
@@ -24,7 +24,7 @@ import { getValidOrigin } from "./utils/get-valid-origin";
 
 export { MteRelayError } from "./utils/mte-relay-error";
 
-const MTE_CLIENT_ID = uuidv4();
+const MTE_CLIENT_ID = generateRandomId();
 
 // export init function
 export async function instantiateMteWasm(options: {
@@ -218,9 +218,9 @@ async function requestServerTranslatorId(origin: string) {
  * Pair with Server MTE Translator
  */
 async function pairWithOrigin(origin: string, originMteId: string) {
-  const encoderPersonalizationStr = uuidv4();
+  const encoderPersonalizationStr = generateRandomId();
   const encoderEcdh = await getEcdh();
-  const decoderPersonalizationStr = uuidv4();
+  const decoderPersonalizationStr = generateRandomId();
   const decoderEcdh = await getEcdh();
 
   const response = await fetch(`${origin}/api/mte-pair`, {
