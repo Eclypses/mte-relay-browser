@@ -42,7 +42,7 @@ export async function instantiateMteWasm(options: {
 }
 
 // export network request function
-export async function mteFetch(url: string, options: RequestInit) {
+export async function mteFetch(url: string, options?: RequestInit) {
   let _options = options || {};
   let mteRelayOrigin = getRegisteredOrigin(url);
 
