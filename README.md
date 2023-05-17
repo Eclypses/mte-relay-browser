@@ -28,7 +28,7 @@ await instantiateMteWasm({
 
 ## Using mteFetch
 
-The library exposes a function called `mteFetch` that accepts the same arguments as the native [fetch API](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch) in modern browsers. However, unlike a normal fetch, it will first attempt to establish a connection with a server-side MTE relay, and then MTE encrypt all data sent between the two end points. Encrypting and Decrypting data is handled automatically, and mteFetch can be used as a normal fetch.
+The library exports a function called `mteFetch` that accepts the same arguments as the native [fetch API](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch) in modern browsers. However, unlike a normal fetch, it will first attempt to establish a connection with a server-side MTE relay, and then MTE encrypt all data sent between the two end points. Encrypting and Decrypting data is handled automatically, and mteFetch can be used as a normal fetch.
 
 ```js
 import { mteFetch } from "mte-relay-browser";

@@ -3,6 +3,7 @@ const MTE_RELAY_ERROR_CODES = {
   "Origin is not an MTE Relay origin.": 550,
   "Failed to pair with server MTE Translator.": 551,
   "Unknown value to encode.": 552,
+  "MTE WASM not instantiated.": 553,
 } as const;
 
 // prevent changes to this object

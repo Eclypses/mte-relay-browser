@@ -1,5 +1,4 @@
-export const PORT = 3009;
-export const MTE_ID_HEADER = `x-mte-server-id`;
-export const MTE_CLIENT_ID_HEADER = `x-mte-client-id`;
-export const MTE_ENCODE_TYPE_HEADER = "x-mte-encode-type";
-export const MTE_ENCODED_CONTENT_TYPE_HEADER_NAME = "x-mte-cth";
+export const SERVER_ID_HEADER = `x-mte-relay-server-id`;
+export const CLIENT_ID_HEADER = `x-mte-relay-client-id`;
+export const SESSION_ID_HEADER = `x-mte-relay-session-id`;
+export const MTE_ENCODED_HEADERS_HEADER = "x-mte-relay-eh";

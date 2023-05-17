@@ -6,9 +6,10 @@ import {
   mteDecode,
 } from "mte-helpers";
 import {
-  MTE_ID_HEADER,
-  MTE_ENCODED_CONTENT_TYPE_HEADER_NAME,
-  MTE_CLIENT_ID_HEADER,
+  SERVER_ID_HEADER,
+  CLIENT_ID_HEADER,
+  MTE_ENCODED_HEADERS_HEADER,
+  SESSION_ID_HEADER,
 } from "./constants";
 import {
   getRegisteredOrigin,
@@ -21,10 +22,10 @@ import { getEcdh } from "./utils/ecdh";
 import cloneDeep from "lodash.clonedeep";
 import { MteRelayError } from "./utils/mte-relay-error";
 import { getValidOrigin } from "./utils/get-valid-origin";
-
 export { MteRelayError } from "./utils/mte-relay-error";
 
-const MTE_CLIENT_ID = generateRandomId();
+let SESSION_ID: string | null;
+let CLIENT_ID: string | null;
 
 // export init function
 export async function instantiateMteWasm(options: {
@@ -39,10 +40,33 @@ export async function instantiateMteWasm(options: {
     encoderType: "MKE",
     keepAlive: Infinity,
   });
+  SESSION_ID = generateRandomId();
 }
 
+type MteRequestOptions = {
+  encodeHeaders: boolean | string[];
+};
+
+const defaultMteRequestOptions: MteRequestOptions = {
+  encodeHeaders: true,
+};
+
 // export network request function
-export async function mteFetch(url: string, options?: RequestInit) {
+export async function mteFetch(
+  url: RequestInfo,
+  options?: RequestInit,
+  mteOptions?: MteRequestOptions
+) {
+  if (!SESSION_ID) {
+    throw new MteRelayError("MTE WASM not instantiated.");
+  }
+  if (url instanceof Request && typeof url !== "string") {
+    throw new Error("Request not support yet. Use string url for now.");
+  }
+
+  // merge defaults with user provide options
+  const _mteOptions = Object.assign(defaultMteRequestOptions, mteOptions);
+
   let _options = options || {};
   let mteRelayOrigin = getRegisteredOrigin(url);
 
@@ -77,7 +101,11 @@ export async function mteFetch(url: string, options?: RequestInit) {
   /**
    * MTE Encode Headers and Body (if they exist)
    */
-  const encodedOptions = await encodeRequest(_options, mteRelayOrigin);
+  const encodedOptions = await encodeRequest(
+    _options,
+    mteRelayOrigin,
+    _mteOptions
+  );
 
   /**
    * Send the request
@@ -109,7 +137,11 @@ export async function mteFetch(url: string, options?: RequestInit) {
             mteId: originMteId,
           });
           await pairWithOrigin(mteRelayOrigin.origin, mteRelayOrigin.mteId);
-          const encodedOptions = await encodeRequest(_options, mteRelayOrigin);
+          const encodedOptions = await encodeRequest(
+            _options,
+            mteRelayOrigin,
+            _mteOptions
+          );
           response = await fetch(url, encodedOptions);
 
           // if the response is now successful, end loop
@@ -123,22 +155,8 @@ export async function mteFetch(url: string, options?: RequestInit) {
     }
   }
 
-  // decode header content-type
-  const encodedContentTypeHeader = response.headers.get(
-    MTE_ENCODED_CONTENT_TYPE_HEADER_NAME
-  );
-
-  let decodedContentTypeHeader = "application/json";
-  if (encodedContentTypeHeader) {
-    // @ts-ignore
-    const _ContentTypeHeader = await mteDecode(encodedContentTypeHeader, {
-      id: `decoder_${mteRelayOrigin.mteId}`,
-      output: "str",
-    });
-    if (_ContentTypeHeader) {
-      decodedContentTypeHeader = _ContentTypeHeader;
-    }
-  }
+  // save client ID
+  CLIENT_ID = response.headers.get(CLIENT_ID_HEADER);
 
   // get response as blob
   const blob = await response.blob();
@@ -160,9 +178,12 @@ export async function mteFetch(url: string, options?: RequestInit) {
   const buffer = await blob.arrayBuffer();
   const u8 = new Uint8Array(buffer);
 
-  const _output = contentTypeIsText(decodedContentTypeHeader)
-    ? "str"
-    : "Uint8Array";
+  let contentType = "application/json";
+  const _contentType = response.headers.get("content-type");
+  if (_contentType) {
+    contentType = _contentType;
+  }
+  const _output = contentTypeIsText(contentType) ? "str" : "Uint8Array";
 
   const decodedBody = await mteDecode(u8, {
     id: `decoder_${mteRelayOrigin.mteId}`,
@@ -201,13 +222,16 @@ async function requestServerTranslatorId(origin: string) {
     method: "HEAD",
     credentials: "include",
     headers: {
-      [MTE_CLIENT_ID_HEADER]: MTE_CLIENT_ID,
+      [SESSION_ID_HEADER]: SESSION_ID!,
     },
   });
   if (!response.ok) {
     throw new MteRelayError("Origin is not an MTE Relay origin.");
   }
-  const originMteId = response.headers.get(MTE_ID_HEADER);
+  // save client id
+  CLIENT_ID = response.headers.get(CLIENT_ID_HEADER);
+
+  const originMteId = response.headers.get(SERVER_ID_HEADER);
   if (!originMteId) {
     throw new MteRelayError("Origin is not an MTE Relay origin.");
   }
@@ -227,7 +251,8 @@ async function pairWithOrigin(origin: string, originMteId: string) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      [MTE_CLIENT_ID_HEADER]: MTE_CLIENT_ID,
+      [SESSION_ID_HEADER]: SESSION_ID!,
+      [CLIENT_ID_HEADER]: CLIENT_ID!,
     },
     credentials: "include",
     body: JSON.stringify({
@@ -240,6 +265,9 @@ async function pairWithOrigin(origin: string, originMteId: string) {
   if (!response.ok) {
     throw new MteRelayError("Failed to pair with server MTE Translator.");
   }
+
+  // save client ID
+  CLIENT_ID = response.headers.get(CLIENT_ID_HEADER);
 
   // convert response to json
   const pairResponseData = await response.json();
@@ -273,7 +301,8 @@ async function pairWithOrigin(origin: string, originMteId: string) {
  */
 async function encodeRequest(
   options: RequestInit,
-  originRecord: MteRelayRecord
+  originRecord: MteRelayRecord,
+  mteOptions: MteRequestOptions
 ) {
   // clone original into new copy and modify copy
   const _options = cloneDeep(options);
@@ -283,17 +312,76 @@ async function encodeRequest(
 
   // encode the content-type header (if it exists)
   const headers = new Headers(_options.headers);
-  headers.append(MTE_CLIENT_ID_HEADER, MTE_CLIENT_ID);
-  const originalContentTypeHeader = headers.get("content-type");
-  if (originalContentTypeHeader) {
-    const encodedHeader = await mteEncode(originalContentTypeHeader, {
-      id: encoderId,
-      output: "B64",
-    });
-    headers.set(MTE_ENCODED_CONTENT_TYPE_HEADER_NAME, encodedHeader);
-    headers.delete("content-type");
-  }
-  _options.headers = headers;
+
+  // encode headers
+  const _headers: Headers = await (async () => {
+    const headersToEncode: Record<string, string> = {};
+
+    // original content-type ALWAYS must be encoded and preserved (because we have to change content-type to application/octet-stream)
+    const contentType = headers.get("content-type");
+    if (contentType) {
+      headersToEncode["content-type"] = contentType;
+    }
+
+    // if boolean, encode all or nothing
+    if (typeof mteOptions.encodeHeaders === "boolean") {
+      if (mteOptions.encodeHeaders === true) {
+        for (const [name, value] of headers.entries()) {
+          headersToEncode[name] = value;
+          headers.delete(name);
+        }
+      }
+      const headersJSON = JSON.stringify(headersToEncode);
+      console.log("headersJSON", headersJSON);
+      const encodedHeader = await mteEncode(headersJSON, {
+        id: encoderId,
+        output: "B64",
+      });
+      headers.set(MTE_ENCODED_HEADERS_HEADER, encodedHeader);
+      return headers;
+    }
+
+    // if array, encode just those headers
+    if (Array.isArray(mteOptions.encodeHeaders)) {
+      const allStrings = mteOptions.encodeHeaders.every(
+        (i) => typeof i === "string"
+      );
+      if (!allStrings) {
+        throw Error(
+          `Expected an array of strings for mteOptions.encodeHeaders, but received ${mteOptions.encodeHeaders}.`
+        );
+      }
+      // encode each header (except content-type header, which is ALWAYS encoded)
+      const sansContentType = mteOptions.encodeHeaders.filter(
+        (i) => i !== "content-type"
+      );
+      for (const headerName of sansContentType) {
+        const headerValue = headers.get(headerName);
+        if (headerValue) {
+          headersToEncode[headerName] = headerValue;
+          headers.delete(headerName);
+        }
+      }
+      const headersJSON = JSON.stringify(headersToEncode);
+      const encodedHeaders = await mteEncode(headersJSON, {
+        id: encoderId,
+        output: "B64",
+      });
+      headers.set(MTE_ENCODED_HEADERS_HEADER, encodedHeaders);
+      return headers;
+    }
+    throw Error(
+      `Unexpected type for mteOptions.encodeHeaders. Expected boolean or string array, but received ${typeof mteOptions.encodeHeaders}.`
+    );
+  })();
+
+  // append mte relay client and session IDs
+  _headers.append(CLIENT_ID_HEADER, CLIENT_ID!);
+  _headers.append(SESSION_ID_HEADER, SESSION_ID!);
+  _headers.delete("content-type");
+  _headers.append("content-type", "application/octet-stream");
+
+  _options.headers = _headers;
 
   // Determine how to encode the body (if it exists)
   if (_options.body) {
@@ -304,7 +392,6 @@ async function encodeRequest(
           id: encoderId,
           output: "Uint8Array",
         });
-        headers.set("content-type", "application/octet-stream");
         return;
       }
 
@@ -390,7 +477,6 @@ async function encodeRequest(
           id: encoderId,
           output: "Uint8Array",
         });
-        headers.set("content-type", "application/octet-stream");
         return;
       }
 
