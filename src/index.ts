@@ -22,6 +22,7 @@ import { getEcdh } from "./utils/ecdh";
 import cloneDeep from "lodash.clonedeep";
 import { MteRelayError } from "./utils/mte-relay-error";
 import { getValidOrigin } from "./utils/get-valid-origin";
+import { setCookie, getCookieValue } from "./utils/cookies";
 export { MteRelayError } from "./utils/mte-relay-error";
 
 let SESSION_ID: string | null;
@@ -41,6 +42,10 @@ export async function instantiateMteWasm(options: {
     keepAlive: Infinity,
   });
   SESSION_ID = generateRandomId();
+  const clientId = getCookieValue(CLIENT_ID_HEADER);
+  if (clientId) {
+    CLIENT_ID = clientId;
+  }
 }
 
 type MteRequestOptions = {
@@ -157,6 +162,9 @@ export async function mteFetch(
 
   // save client ID
   CLIENT_ID = response.headers.get(CLIENT_ID_HEADER);
+  if (CLIENT_ID) {
+    setCookie(CLIENT_ID_HEADER, CLIENT_ID);
+  }
 
   // get response as blob
   const blob = await response.blob();
@@ -218,19 +226,26 @@ function contentTypeIsText(contentType: string) {
  * If it exists, we assume the origin is an mte translator.
  */
 async function requestServerTranslatorId(origin: string) {
+  const _headers: Record<string, string> = {};
+  if (SESSION_ID) {
+    _headers[SESSION_ID_HEADER] = SESSION_ID;
+  }
+  if (CLIENT_ID) {
+    _headers[CLIENT_ID_HEADER] = CLIENT_ID;
+  }
   const response = await fetch(origin + "/api/mte-relay", {
     method: "HEAD",
     credentials: "include",
-    headers: {
-      [SESSION_ID_HEADER]: SESSION_ID!,
-    },
+    headers: _headers,
   });
   if (!response.ok) {
     throw new MteRelayError("Origin is not an MTE Relay origin.");
   }
   // save client id
   CLIENT_ID = response.headers.get(CLIENT_ID_HEADER);
-
+  if (CLIENT_ID) {
+    setCookie(CLIENT_ID_HEADER, CLIENT_ID);
+  }
   const originMteId = response.headers.get(SERVER_ID_HEADER);
   if (!originMteId) {
     throw new MteRelayError("Origin is not an MTE Relay origin.");
@@ -247,13 +262,19 @@ async function pairWithOrigin(origin: string, originMteId: string) {
   const decoderPersonalizationStr = generateRandomId();
   const decoderEcdh = await getEcdh();
 
+  const _headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (SESSION_ID) {
+    _headers[SESSION_ID_HEADER] = SESSION_ID;
+  }
+  if (CLIENT_ID) {
+    _headers[CLIENT_ID_HEADER] = CLIENT_ID;
+  }
+
   const response = await fetch(`${origin}/api/mte-pair`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      [SESSION_ID_HEADER]: SESSION_ID!,
-      [CLIENT_ID_HEADER]: CLIENT_ID!,
-    },
+    headers: _headers,
     credentials: "include",
     body: JSON.stringify({
       encoderPersonalizationStr,
@@ -268,6 +289,9 @@ async function pairWithOrigin(origin: string, originMteId: string) {
 
   // save client ID
   CLIENT_ID = response.headers.get(CLIENT_ID_HEADER);
+  if (CLIENT_ID) {
+    setCookie(CLIENT_ID_HEADER, CLIENT_ID);
+  }
 
   // convert response to json
   const pairResponseData = await response.json();
@@ -378,8 +402,7 @@ async function encodeRequest(
   // append mte relay client and session IDs
   _headers.append(CLIENT_ID_HEADER, CLIENT_ID!);
   _headers.append(SESSION_ID_HEADER, SESSION_ID!);
-  _headers.delete("content-type");
-  _headers.append("content-type", "application/octet-stream");
+  _headers.set("content-type", "application/octet-stream");
 
   _options.headers = _headers;
 
