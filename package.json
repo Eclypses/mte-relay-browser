@@ -19,8 +19,7 @@
     "mte": "npm:@eclypses/tblackman-llc-mte-relay-demo-sales-demo-mte-relay@^3.1.2"
   },
   "dependencies": {
-    "lodash.clonedeep": "^4.5.0",
-    "mte-helpers": "^1.0.0"
+    "lodash.clonedeep": "^4.5.0"
   },
   "files": [
     "dist"

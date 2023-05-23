@@ -30,7 +30,6 @@ export function setCookie(name: string, value: string, days?: number) {
     cookieValue += ` domain=${domain};`;
   }
   document.cookie = `${name}=${cookieValue}`;
-  console.log("cookie set", `${name}=${cookieValue}`);
   return undefined;
 }
 
