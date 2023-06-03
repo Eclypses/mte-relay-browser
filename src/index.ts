@@ -40,7 +40,7 @@ export async function instantiateMteWasm(options: {
   if (clientId) {
     CLIENT_ID = clientId;
   }
-  SESSION_ID = generateRandomId();
+  setNewSessionId();
 }
 
 type MteRequestOptions = {
@@ -51,20 +51,44 @@ const defaultMteRequestOptions: MteRequestOptions = {
   encodeHeaders: true,
 };
 
-// export network request function
+// send encoded request
+// if it throws an MTE error, try again 1 time
 export async function mteFetch(
   url: RequestInfo,
   options?: RequestInit,
   mteOptions?: MteRequestOptions
 ) {
+  try {
+    return await sendMteRequest(url, options, mteOptions);
+  } catch (error) {
+    if (error instanceof MteRelayError) {
+      const urlOrigin = getValidOrigin(url);
+      unregisterOrigin(urlOrigin);
+      setNewSessionId();
+      return await sendMteRequest(url, options, mteOptions);
+    }
+    let message = "An unknown error occurred.";
+    if (error instanceof Error) {
+      message = error.message;
+    }
+    throw Error(message);
+  }
+}
+
+// export network request function
+async function sendMteRequest(
+  url: RequestInfo,
+  options?: RequestInit,
+  mteOptions?: MteRequestOptions
+): Promise<Response> {
+  // copy the session ID to use for the duration of this request
+  let _SESSION_ID = SESSION_ID;
+  let urlOrigin = "";
+  const _options = options || {};
+  const _mteOptions = Object.assign(defaultMteRequestOptions, mteOptions);
   if (url instanceof Request && typeof url !== "string") {
     throw new Error("Request not support yet. Use string url for now.");
   }
-
-  // merge defaults with user provide options
-  const _mteOptions = Object.assign(defaultMteRequestOptions, mteOptions);
-
-  let _options = options || {};
   let mteRelayOrigin = getRegisteredOrigin(url);
 
   /**
@@ -73,27 +97,24 @@ export async function mteFetch(
    * - register origin
    * - pair with origin
    */
-  const urlOrigin = getValidOrigin(url);
+  urlOrigin = getValidOrigin(url);
   if (!mteRelayOrigin) {
-    const mteRelayServerId = await requestServerTranslatorId(urlOrigin);
+    const mteRelayServerId = await requestServerTranslatorId(
+      urlOrigin,
+      _SESSION_ID
+    );
     mteRelayOrigin = registerOrigin({
       origin: urlOrigin,
       mteId: mteRelayServerId,
     });
-    await pairWithOrigin(urlOrigin);
+    await pairWithOrigin(urlOrigin, _SESSION_ID);
   }
-
-  // include cookies with every request, they are tracked by the server relay
-  _options.credentials = "include";
 
   // no-store response
   _options.cache = "no-store";
 
   // add headers if they do not exist
-  const _headers = new Headers(_options.headers || {});
-
-  // set headers
-  _options.headers = _headers;
+  _options.headers = new Headers(_options.headers || {});
 
   /**
    * MTE Encode Headers and Body (if they exist)
@@ -101,7 +122,8 @@ export async function mteFetch(
   const encodedOptions = await encodeRequest(
     _options,
     mteRelayOrigin,
-    _mteOptions
+    _mteOptions,
+    _SESSION_ID
   );
 
   /**
@@ -111,45 +133,21 @@ export async function mteFetch(
 
   // handle a bad response
   if (!response.ok) {
-    if (!MteRelayError.isMteErrorStatus(response.status)) {
-      return response;
-    }
-    const message = MteRelayError.getStatusErrorMessages(response.status);
-    console.error(message);
-    SESSION_ID = generateRandomId();
-
-    /**
-     * - re-pair with MTE Server Relay
-     * - re-encode original request data
-     * - re-send request with newly encoded data
-     */
-    try {
-      unregisterOrigin(urlOrigin);
-      const mteRelayServerId = await requestServerTranslatorId(urlOrigin);
-      mteRelayOrigin = registerOrigin({
-        origin: urlOrigin,
-        mteId: mteRelayServerId,
-      });
-      await pairWithOrigin(mteRelayOrigin.origin);
-      const encodedOptions = await encodeRequest(
-        _options,
-        mteRelayOrigin,
-        _mteOptions
-      );
-      response = await fetch(url, encodedOptions);
-    } catch (err) {
-      let message = `MTE Fetch failed`;
-      if (err instanceof Error) {
-        message += `: ${err.message}`;
+    if (MteRelayError.isMteErrorStatus(response.status)) {
+      const msg = MteRelayError.getStatusErrorMessages(response.status);
+      if (msg) {
+        throw new MteRelayError(msg);
       }
-      throw Error(message);
     }
+    return response;
   }
+
   // get server ID
   const serverId = response.headers.get(SERVER_ID_HEADER);
   if (!serverId) {
     throw new Error(`Response is missing header: ${SERVER_ID_HEADER}`);
   }
+
   // save client ID
   CLIENT_ID = response.headers.get(CLIENT_ID_HEADER);
   if (!CLIENT_ID) {
@@ -157,53 +155,71 @@ export async function mteFetch(
   }
   setCookie(CLIENT_ID_HEADER, CLIENT_ID);
 
+  // get session ID from this request/response
+  const responseSessionId = response.headers.get(SESSION_ID_HEADER);
+  if (!responseSessionId) {
+    throw new Error(`Response is missing header: ${SESSION_ID_HEADER}`);
+  }
+
+  // decode encoded headers
+  const responseEncodedHeaders = response.headers.get(
+    MTE_ENCODED_HEADERS_HEADER
+  )!;
+  const responseDecodedHeadersJson = await mkeDecode(responseEncodedHeaders, {
+    stateId: `decoder.${serverId}.${responseSessionId}`,
+    output: "str",
+  });
+  const responseDecodedHeaders = JSON.parse(
+    responseDecodedHeadersJson as string
+  );
+
   // get response as blob
   const blob = await response.blob();
 
   // if blob is empty, return early
   if (blob.size < 1) {
-    response.json = async function () {
-      return null;
-    };
-    response.text = async function () {
-      return "";
-    };
-    response.blob = async function () {
-      return blob;
-    };
-    return response;
+    // return decoded response
+    return new Response(null, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: {
+        ...response.headers,
+        ...responseDecodedHeaders,
+      },
+    });
   }
 
   const buffer = await blob.arrayBuffer();
   const u8 = new Uint8Array(buffer);
 
   let contentType = "application/json";
-  const _contentType = response.headers.get("content-type");
+  const _contentType = responseDecodedHeaders["content-type"];
   if (_contentType) {
     contentType = _contentType;
   }
   const _output = contentTypeIsText(contentType) ? "str" : "Uint8Array";
 
   const decodedBody = await mkeDecode(u8, {
-    stateId: `decoder.${serverId}.${SESSION_ID}`,
+    stateId: `decoder.${serverId}.${responseSessionId}`,
     // @ts-ignore
     output: _output,
   });
 
-  /**
-   * Define response object methods to match normal response object methods
-   */
-  response.json = async function () {
-    return JSON.parse(decodedBody as string);
-  };
-  response.text = async function () {
-    return decodedBody as string;
-  };
-  response.blob = async function () {
-    const result = new Blob([decodedBody as Uint8Array]);
-    return result;
-  };
-  return response;
+  // return decoded response
+  return new Response(decodedBody, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: {
+      ...response.headers,
+      ...responseDecodedHeaders,
+    },
+  });
+}
+
+// updates the session ID
+// which can then be used to create a new encoder/decoder
+function setNewSessionId() {
+  SESSION_ID = generateRandomId();
 }
 
 // determine if encoded content should be decoded to text or to UInt8Array
@@ -216,9 +232,9 @@ function contentTypeIsText(contentType: string) {
  * Make a HEAD request to check for x-mte-id response header,
  * If it exists, we assume the origin is an mte translator.
  */
-async function requestServerTranslatorId(origin: string) {
+async function requestServerTranslatorId(origin: string, sessionId: string) {
   const _headers: Record<string, string> = {
-    [SESSION_ID_HEADER]: SESSION_ID,
+    [SESSION_ID_HEADER]: sessionId,
   };
   if (CLIENT_ID) {
     _headers[CLIENT_ID_HEADER] = CLIENT_ID;
@@ -246,7 +262,7 @@ async function requestServerTranslatorId(origin: string) {
 /**
  * Pair with Server MTE Translator
  */
-async function pairWithOrigin(origin: string) {
+async function pairWithOrigin(origin: string, sessionId: string) {
   const encoderPersonalizationStr = generateRandomId();
   const encoderEcdh = await getEcdh();
   const decoderPersonalizationStr = generateRandomId();
@@ -254,7 +270,7 @@ async function pairWithOrigin(origin: string) {
 
   const _headers: Record<string, string> = {
     "Content-Type": "application/json",
-    [SESSION_ID_HEADER]: SESSION_ID,
+    [SESSION_ID_HEADER]: sessionId,
   };
   if (CLIENT_ID) {
     _headers[CLIENT_ID_HEADER] = CLIENT_ID;
@@ -300,14 +316,14 @@ async function pairWithOrigin(origin: string) {
     entropy: encoderEntropy,
     nonce: pairResponseData.decoderNonce,
     personalization: encoderPersonalizationStr,
-    id: `encoder.${serverId}.${SESSION_ID}`,
+    id: `encoder.${serverId}.${sessionId}`,
   });
 
   await instantiateDecoder({
     entropy: decoderEntropy,
     nonce: pairResponseData.encoderNonce,
     personalization: decoderPersonalizationStr,
-    id: `decoder.${serverId}.${SESSION_ID}`,
+    id: `decoder.${serverId}.${sessionId}`,
   });
 }
 
@@ -317,13 +333,14 @@ async function pairWithOrigin(origin: string) {
 async function encodeRequest(
   options: RequestInit,
   originRecord: MteRelayRecord,
-  mteOptions: MteRequestOptions
+  mteOptions: MteRequestOptions,
+  sessionId: string
 ) {
   // clone original into new copy and modify copy
   const _options = cloneDeep(options);
 
   // create the encoder id once, use it where needed
-  const encoderId = `encoder.${originRecord.mteId}.${SESSION_ID}`;
+  const encoderId = `encoder.${originRecord.mteId}.${sessionId}`;
 
   // encode the content-type header (if it exists)
   const headers = new Headers(_options.headers);
@@ -347,7 +364,6 @@ async function encodeRequest(
         }
       }
       const headersJSON = JSON.stringify(headersToEncode);
-      console.log("headersJSON", headersJSON);
       const encodedHeader = await mkeEncode(headersJSON, {
         stateId: encoderId,
         output: "B64",
@@ -391,8 +407,8 @@ async function encodeRequest(
   })();
 
   // append mte relay client and session IDs
-  _headers.append(CLIENT_ID_HEADER, CLIENT_ID!);
-  _headers.append(SESSION_ID_HEADER, SESSION_ID);
+  _headers.set(CLIENT_ID_HEADER, CLIENT_ID!);
+  _headers.set(SESSION_ID_HEADER, sessionId);
   _headers.set("content-type", "application/octet-stream");
 
   _options.headers = _headers;

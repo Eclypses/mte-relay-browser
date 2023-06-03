@@ -23,5 +23,8 @@ export async function takeItem(id: string): Promise<string | null> {
   if (!id.includes("decoder")) {
     store.delete(id);
   }
+  if (!item) {
+    return null;
+  }
   return item;
 }

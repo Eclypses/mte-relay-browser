@@ -25,11 +25,11 @@ export class MteRelayError extends Error {
   static isMteErrorStatus(status: number) {
     return statusCodes.has(status);
   }
-  static getStatusErrorMessages(status: number) {
+  static getStatusErrorMessages(status: number): ErrorMessages | undefined {
     const entries = Object.entries(MTE_ERRORS);
     for (const [message, code] of entries) {
       if (code === status) {
-        return message;
+        return message as ErrorMessages;
       }
     }
     return undefined;
