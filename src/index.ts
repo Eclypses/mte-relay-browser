@@ -363,6 +363,9 @@ async function encodeRequest(
           headers.delete(name);
         }
       }
+      if (isObjectEmpty(headersToEncode)) {
+        return headers;
+      }
       const headersJSON = JSON.stringify(headersToEncode);
       const encodedHeader = await mkeEncode(headersJSON, {
         stateId: encoderId,
@@ -386,6 +389,9 @@ async function encodeRequest(
       const sansContentType = mteOptions.encodeHeaders.filter(
         (i) => i !== "content-type"
       );
+      if (isObjectEmpty(sansContentType)) {
+        return headers;
+      }
       for (const headerName of sansContentType) {
         const headerValue = headers.get(headerName);
         if (headerValue) {
@@ -436,6 +442,9 @@ async function encodeRequest(
 
       // handle FormData
       if (_options.body instanceof FormData) {
+        // delete content-type header, it is set by browser
+        _headers.delete("content-type");
+
         // create new formData object
         const _encodedFormData = new FormData();
 
@@ -539,4 +548,25 @@ async function encodeRequest(
   }
 
   return _options;
+}
+
+/**
+ * Checks if an object is empty.
+ * @param obj - The object to check.
+ * @returns True if the object is empty, false otherwise.
+ */
+function isObjectEmpty(obj: object | null): boolean {
+  // Check if obj is an object
+  if (typeof obj !== "object" || obj === null) {
+    return false;
+  }
+
+  // Check if obj has any own properties
+  for (const key in obj) {
+    if (Object.prototype.hasOwnProperty.call(obj, key)) {
+      return false;
+    }
+  }
+
+  return true;
 }
