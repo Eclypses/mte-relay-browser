@@ -48,3 +48,31 @@ const data = await response.json();
 ```
 
 > Note: This library is designed to only communicate with a properly configured [MTE Relay Server](https://www.npmjs.com/package/mte-relay-server).
+
+### MTE Options
+
+mteFetch() accepts three arguments:\
+`mteFetch(url, options, mteOptions)`
+
+The third argument, `mteOptions`, is an object that can be used to configure MTE functionality for that specific request. Review the options below.
+
+- `encodeHeaders`
+  - Type: boolean | string[]
+  - Default: true
+  - If true, all headers passed to the mteFetch options object will be encoded. If false, no headers will be encoded. If an array of strings, only the headers in the array will be encoded.
+
+Example:
+
+```js
+mteFetch('/api/admin/new-user', {
+  headers: {
+    authorization: 'bearer 123456'
+  },
+  method: 'POST',
+  body: JSON.stringify({
+    email: 'user01@email.com',
+    password: 'P@ssw0rd!'
+}, {
+  encodeHeaders: true
+});
+```
