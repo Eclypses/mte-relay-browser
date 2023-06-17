@@ -170,15 +170,15 @@ export async function mkeEncode(
   payload: string | Uint8Array,
   options: { stateId: string; output: "B64" | "Uint8Array" }
 ) {
+  const encoder = getEncoderFromPool();
   const currentState = await cache.takeState(options.stateId);
   if (!currentState) {
+    returnEncoderToPool(encoder);
     throw new MteRelayError("State not found.", {
       stateId: options.stateId,
     });
   }
-  const encoder = getEncoderFromPool();
   restoreMteState(encoder, currentState);
-  drbgReseedCheck(encoder);
   const nextStateResult = encoder.encodeStr("eclypses");
   validateStatusIsSuccess(nextStateResult.status, encoder);
   const nextState = getMteState(encoder);
@@ -233,7 +233,7 @@ export async function mkeDecode(
   }
   const decoder = getDecoderFromPool();
   restoreMteState(decoder, currentState);
-  decoder;
+  drbgReseedCheck(decoder);
   let decodeResult: MteArrStatus | MteStrStatus;
   try {
     if (payload instanceof Uint8Array) {
@@ -256,7 +256,6 @@ export async function mkeDecode(
       error: (error as Error).message,
     });
   }
-
   const state = getMteState(decoder);
   returnDecoderToPool(decoder);
   await cache.saveState(options.stateId, state);
