@@ -24,7 +24,7 @@ import { MteRelayError } from "./mte/errors";
 import { getValidOrigin } from "./utils/get-valid-origin";
 import { setCookie, getCookieValue } from "./utils/cookies";
 
-let SESSION_ID: string = "";
+let SESSION_ID: string = generateRandomId();
 let CLIENT_ID: string | null;
 
 // export init function
@@ -40,7 +40,6 @@ export async function instantiateMteWasm(options: {
   if (clientId) {
     CLIENT_ID = clientId;
   }
-  setNewSessionId();
 }
 
 type MteRequestOptions = {
@@ -64,7 +63,7 @@ export async function mteFetch(
     if (error instanceof MteRelayError) {
       const urlOrigin = getValidOrigin(url);
       unregisterOrigin(urlOrigin);
-      setNewSessionId();
+      SESSION_ID = generateRandomId();
       return await sendMteRequest(url, options, mteOptions);
     }
     let message = "An unknown error occurred.";
@@ -214,12 +213,6 @@ async function sendMteRequest(
       ...responseDecodedHeaders,
     },
   });
-}
-
-// updates the session ID
-// which can then be used to create a new encoder/decoder
-function setNewSessionId() {
-  SESSION_ID = generateRandomId();
 }
 
 // determine if encoded content should be decoded to text or to UInt8Array
