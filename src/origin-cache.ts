@@ -6,7 +6,7 @@ import { getValidOrigin } from "./utils/get-valid-origin";
 
 export type MteRelayRecord = {
   origin: string;
-  mteId: string;
+  serverId: string;
 };
 
 const mteRelayMap = new Map<string, MteRelayRecord>();
@@ -16,12 +16,12 @@ const mteRelayMap = new Map<string, MteRelayRecord>();
  */
 export function registerOrigin(options: {
   origin: RequestInfo | URL;
-  mteId: string;
+  serverId: string;
 }) {
   const _origin = getValidOrigin(options.origin);
   let record: MteRelayRecord = {
     origin: _origin,
-    mteId: options.mteId,
+    serverId: options.serverId,
   };
   mteRelayMap.set(_origin, record);
   return record;

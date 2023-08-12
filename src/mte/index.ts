@@ -17,10 +17,15 @@ const cache = {
   takeState: takeItem,
 };
 
-const MAX_POOL_SIZE = 3;
-
 const encoderPool: MteMkeEnc[] = [];
 const decoderPool: MteMkeDec[] = [];
+
+// this should be overwritten by the initWasm function in index.js
+let MAX_POOL_SIZE = 5;
+
+export function setEncoderDecoderPoolSize(size: number) {
+  MAX_POOL_SIZE = size;
+}
 
 // fill pools with default encoders/decoders
 function fillPools() {
@@ -68,6 +73,45 @@ function returnDecoderToPool(decoder: MteMkeDec) {
   return decoder.destruct();
 }
 
+const pairIdQueueMap: Map<string, string[]> = new Map();
+
+// add id to queue
+function addPairIdToQueue(options: { serverId: string; pairId: string }) {
+  let pairIds = pairIdQueueMap.get(options.serverId);
+  if (!pairIds) {
+    pairIds = [];
+    pairIdQueueMap.set(options.serverId, pairIds);
+  }
+  pairIds.push(options.pairId);
+}
+
+// get next id from queue
+export function getNextPairIdFromQueue(serverId: string) {
+  const pairIds = pairIdQueueMap.get(serverId) || [];
+  const id = pairIds.shift();
+  if (!id) {
+    throw Error("No ID in queue.");
+  }
+  pairIds.push(id);
+  return id;
+}
+
+// delete an ID from the queue
+export function deleteIdFromQueue(options: {
+  serverId: string;
+  pairId: string;
+}) {
+  const pairIds = pairIdQueueMap.get(options.serverId);
+  if (!pairIds) {
+    throw Error("No queue for server.");
+  }
+  const index = pairIds.indexOf(options.pairId);
+  if (index === -1) {
+    throw Error("ID not found in queue.");
+  }
+  pairIds.splice(index, 1);
+}
+
 // init MteWasm
 // update cache with custom save/take state methods (if provided)
 // fill pools
@@ -99,7 +143,6 @@ export async function instantiateMteWasm(options: {
   if (options.takeState) {
     cache.takeState = options.takeState;
   }
-
   fillPools();
 }
 
@@ -113,7 +156,8 @@ export async function instantiateMteWasm(options: {
  * - save state to cache
  */
 export async function instantiateEncoder(options: {
-  id: string;
+  serverId: string;
+  pairId: string;
   entropy: Uint8Array;
   nonce: string;
   personalization: string;
@@ -124,8 +168,12 @@ export async function instantiateEncoder(options: {
   const initResult = encoder.instantiate(options.personalization);
   validateStatusIsSuccess(initResult, encoder);
   const state = getMteState(encoder);
-  await cache.saveState(options.id, state);
+  await cache.saveState(`encoder.${options.serverId}.${options.pairId}`, state);
   returnEncoderToPool(encoder);
+  addPairIdToQueue({
+    serverId: options.serverId,
+    pairId: options.pairId,
+  });
 }
 
 /**
@@ -138,7 +186,8 @@ export async function instantiateEncoder(options: {
  * - save state to cache
  */
 export async function instantiateDecoder(options: {
-  id: string;
+  serverId: string;
+  pairId: string;
   entropy: Uint8Array;
   nonce: string;
   personalization: string;
@@ -150,7 +199,7 @@ export async function instantiateDecoder(options: {
   validateStatusIsSuccess(initResult, decoder);
   const state = getMteState(decoder);
   returnDecoderToPool(decoder);
-  await cache.saveState(options.id, state);
+  await cache.saveState(`decoder.${options.serverId}.${options.pairId}`, state);
 }
 
 /**
@@ -168,21 +217,21 @@ export async function instantiateDecoder(options: {
  */
 export async function mkeEncode(
   payload: string | Uint8Array,
-  options: { stateId: string; output: "B64" | "Uint8Array" }
+  options: { id: string; output: "B64" | "Uint8Array" }
 ) {
   const encoder = getEncoderFromPool();
-  const currentState = await cache.takeState(options.stateId);
+  const currentState = await cache.takeState(options.id);
   if (!currentState) {
     returnEncoderToPool(encoder);
     throw new MteRelayError("State not found.", {
-      stateId: options.stateId,
+      stateId: options.id,
     });
   }
   restoreMteState(encoder, currentState);
-  const nextStateResult = encoder.encodeStr("eclypses");
+  const nextStateResult = encoder.encodeStr("\0");
   validateStatusIsSuccess(nextStateResult.status, encoder);
   const nextState = getMteState(encoder);
-  await cache.saveState(options.stateId, nextState);
+  await cache.saveState(options.id, nextState);
   restoreMteState(encoder, currentState);
   let encodeResult: MteArrStatus | MteStrStatus;
   try {
@@ -202,7 +251,7 @@ export async function mkeEncode(
     validateStatusIsSuccess(encodeResult.status, encoder);
   } catch (error) {
     throw new MteRelayError("Failed to encode.", {
-      stateId: options.stateId,
+      stateId: options.id,
       error: (error as Error).message,
     });
   }
@@ -223,12 +272,12 @@ export async function mkeEncode(
  */
 export async function mkeDecode(
   payload: string | Uint8Array,
-  options: { stateId: string; output: "str" | "Uint8Array" }
+  options: { id: string; output: "str" | "Uint8Array" }
 ) {
-  const currentState = await cache.takeState(options.stateId);
+  const currentState = await cache.takeState(options.id);
   if (!currentState) {
     throw new MteRelayError("State not found.", {
-      stateId: options.stateId,
+      stateId: options.id,
     });
   }
   const decoder = getDecoderFromPool();
@@ -252,13 +301,13 @@ export async function mkeDecode(
     validateStatusIsSuccess(decodeResult.status, decoder);
   } catch (error) {
     throw new MteRelayError("Failed to decode.", {
-      stateId: options.stateId,
+      stateId: options.id,
       error: (error as Error).message,
     });
   }
   const state = getMteState(decoder);
   returnDecoderToPool(decoder);
-  await cache.saveState(options.stateId, state);
+  await cache.saveState(options.id, state);
   return "str" in decodeResult ? decodeResult.str : decodeResult.arr;
 }
 
