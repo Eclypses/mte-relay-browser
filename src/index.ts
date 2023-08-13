@@ -14,12 +14,11 @@ import {
   MTE_ENCODED_HEADERS_HEADER,
   PAIR_ID_HEADER,
 } from "./constants";
-import { getRegisteredOrigin, registerOrigin } from "./origin-cache";
+import { setServerStatus, validateServer } from "./origin-cache";
 import { generateRandomId } from "./utils/generate-id";
 import { getEcdh } from "./utils/ecdh";
 import cloneDeep from "lodash.clonedeep";
 import { MteRelayError } from "./mte/errors";
-import { getValidOrigin } from "./utils/get-valid-origin";
 import { setCookie, getCookieValue } from "./utils/cookies";
 
 let CLIENT_ID: string | null;
@@ -91,22 +90,48 @@ async function sendMteRequest(
     if (url instanceof Request && typeof url !== "string") {
       throw new Error("Request not support yet. Use string url for now.");
     }
-    let mteRelayOrigin = getRegisteredOrigin(url);
 
-    /**
-     * If origin is not yet registered,
-     * - check if origin is an MTE Relay server
-     * - register origin
-     * - pair with origin
-     */
-    urlOrigin = getValidOrigin(url);
-    if (!mteRelayOrigin) {
-      const mteRelayServerId = await requestServerTranslatorId(urlOrigin);
-      mteRelayOrigin = registerOrigin({
-        origin: urlOrigin,
-        serverId: mteRelayServerId,
+    let serverRecord = validateServer(url);
+
+    // if it's pending, recheck every (100 * i)ms
+    if (serverRecord.status === "pending") {
+      for (let i = 0; i < 20; ++i) {
+        await sleep((1 + i) * 100);
+        serverRecord = validateServer(url);
+        if (serverRecord.status === "paired") {
+          break;
+        }
+        if (serverRecord.status === "invalid") {
+          throw new Error("Origin is not an MTE Relay server.");
+        }
+      }
+      if (serverRecord.status !== "paired") {
+        throw new Error("Origin is not an MTE Relay server.");
+      }
+    }
+    if (serverRecord.status === "invalid") {
+      throw new Error("Origin is not an MTE Relay server.");
+    }
+    if (serverRecord.status === "validate") {
+      const mteRelayServerId = await requestServerId(serverRecord.origin).catch(
+        () => {
+          setServerStatus(serverRecord.origin, "invalid");
+          throw new Error("Origin is not an MTE Relay server.");
+        }
+      );
+      await pairWithOrigin(serverRecord.origin).catch(() => {
+        setServerStatus(serverRecord.origin, "invalid");
+        throw new Error("Origin is not an MTE Relay server.");
       });
-      await pairWithOrigin(urlOrigin);
+      serverRecord = setServerStatus(
+        serverRecord.origin,
+        "paired",
+        mteRelayServerId
+      );
+    }
+
+    if (!serverRecord.serverId) {
+      throw new Error("Origin is not an MTE Relay server.");
     }
 
     // no-store response
@@ -115,8 +140,8 @@ async function sendMteRequest(
     // add headers if they do not exist
     _options.headers = new Headers(_options.headers || {});
 
-    pairId = getNextPairIdFromQueue(mteRelayOrigin.serverId);
-    originId = mteRelayOrigin.serverId;
+    pairId = getNextPairIdFromQueue(serverRecord.serverId);
+    originId = serverRecord.serverId;
 
     /**
      * MTE Encode Headers and Body (if they exist)
@@ -242,7 +267,7 @@ function contentTypeIsText(contentType: string) {
  * Make a HEAD request to check for x-mte-id response header,
  * If it exists, we assume the origin is an mte translator.
  */
-async function requestServerTranslatorId(origin: string) {
+async function requestServerId(origin: string) {
   const _headers: Record<string, string> = {};
   if (CLIENT_ID) {
     _headers[CLIENT_ID_HEADER] = CLIENT_ID;
@@ -603,4 +628,8 @@ function isObjectEmpty(obj: object | null): boolean {
   }
 
   return true;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

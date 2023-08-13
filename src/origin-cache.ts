@@ -1,44 +1,48 @@
-import { getValidOrigin } from "./utils/get-valid-origin";
-
 /**
  * Write a cache that maintains a list of MTE Relay Servers this session has communicated with
  */
 
 export type MteRelayRecord = {
   origin: string;
-  serverId: string;
+  serverId: string | null;
+  status: "pending" | "paired" | "invalid" | "validate";
 };
 
-const mteRelayMap = new Map<string, MteRelayRecord>();
+const serverMap = new Map<string, MteRelayRecord>();
 
-/**
- * Register a new MTE Relay server by it's origin.
- */
-export function registerOrigin(options: {
-  origin: RequestInfo | URL;
-  serverId: string;
-}) {
-  const _origin = getValidOrigin(options.origin);
-  let record: MteRelayRecord = {
-    origin: _origin,
-    serverId: options.serverId,
-  };
-  mteRelayMap.set(_origin, record);
-  return record;
+export function validateServer(url: string): MteRelayRecord {
+  const _url = new URL(url);
+  const origin = _url.origin;
+  const serverRecord = serverMap.get(origin);
+
+  if (!serverRecord) {
+    serverMap.set(origin, {
+      origin,
+      serverId: null,
+      status: "pending",
+    });
+    return {
+      origin,
+      serverId: null,
+      status: "validate",
+    };
+  }
+
+  return serverRecord;
 }
 
-/**
- * Check if MTE Relay server exists
- */
-export function getRegisteredOrigin(origin: RequestInfo | URL) {
-  const _origin = getValidOrigin(origin);
-  return mteRelayMap.get(_origin);
-}
-
-/**
- * Delete a registered MTE Relay server by it's origin.
- */
-export function unregisterOrigin(origin: RequestInfo | URL) {
-  const _origin = getValidOrigin(origin);
-  mteRelayMap.delete(_origin);
+export function setServerStatus(
+  origin: string,
+  status: "paired" | "invalid",
+  originId?: string
+): MteRelayRecord {
+  const serverRecord = serverMap.get(origin);
+  if (!serverRecord) {
+    throw Error(`Server ${origin} not found in cache.`);
+  }
+  serverRecord.status = status;
+  if (originId) {
+    serverRecord.serverId = originId;
+  }
+  return serverRecord;
 }
