@@ -82,7 +82,7 @@ async function sendMteRequest(
 ): Promise<Response> {
   let pairId = "";
   let originId = "";
-  let urlOrigin = "";
+  let serverOrigin = "";
   try {
     // copy the session ID to use for the duration of this request
     const _options = options || {};
@@ -92,6 +92,7 @@ async function sendMteRequest(
     }
 
     let serverRecord = validateServer(url);
+    serverOrigin = serverRecord.origin;
 
     // if it's pending, recheck every (100 * i)ms
     if (serverRecord.status === "pending") {
@@ -244,7 +245,7 @@ async function sendMteRequest(
   } catch (error) {
     if (error instanceof MteRelayError) {
       deleteIdFromQueue({ serverId: originId, pairId });
-      pairWithOrigin(urlOrigin, 1);
+      pairWithOrigin(serverOrigin, 1);
       if (!isSecondAttempt) {
         return await sendMteRequest(url, options, mteOptions, true);
       }
