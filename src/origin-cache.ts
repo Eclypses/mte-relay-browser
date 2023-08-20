@@ -33,7 +33,7 @@ export function validateServer(url: string): MteRelayRecord {
 
 export function setServerStatus(
   origin: string,
-  status: "paired" | "invalid",
+  status: "paired" | "invalid" | "pending",
   originId?: string
 ): MteRelayRecord {
   const serverRecord = serverMap.get(origin);

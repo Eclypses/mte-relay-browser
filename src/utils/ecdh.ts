@@ -19,13 +19,16 @@ const algorithm = {
  * const secret = await ecdh.computeSharedSecret(foreignKey);
  * ```
  */
-export async function getEcdh() {
+export async function getEcdh(format: "pkcs8" | "raw" | "spki") {
   const keys = await window.crypto.subtle.generateKey(algorithm, false, [
     "deriveBits",
     "deriveKey",
   ]);
 
-  const publicKey = await window.crypto.subtle.exportKey("raw", keys.publicKey);
+  const publicKey = await window.crypto.subtle.exportKey(
+    format,
+    keys.publicKey
+  );
   const publicKeyBase64 = arrayBufferToBase64(publicKey);
 
   /**
@@ -36,7 +39,7 @@ export async function getEcdh() {
   async function computeSharedSecret(foreignPublicKey: string) {
     const foreignKeyBuffer = base64ToArrayBuffer(foreignPublicKey);
     const importedPublicKey = await window.crypto.subtle.importKey(
-      "raw",
+      format,
       foreignKeyBuffer,
       algorithm,
       true,

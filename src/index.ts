@@ -19,7 +19,7 @@ import { generateRandomId } from "./utils/generate-id";
 import { getEcdh } from "./utils/ecdh";
 import cloneDeep from "lodash.clonedeep";
 import { MteRelayError } from "./mte/errors";
-import { setCookie, getCookieValue } from "./utils/cookies";
+import { setCookie, getCookieValue, expireCookie } from "./utils/cookies";
 
 let CLIENT_ID: string | null;
 let NUMBER_OF_PAIRS = 5;
@@ -78,13 +78,15 @@ async function sendMteRequest(
   url: RequestInfo,
   options?: RequestInit,
   mteOptions?: MteRequestOptions,
-  isSecondAttempt?: boolean
+  requestOptions?: {
+    isLastAttempt?: boolean;
+    revalidateServer?: boolean;
+  }
 ): Promise<Response> {
   let pairId = "";
   let originId = "";
   let serverOrigin = "";
   try {
-    // copy the session ID to use for the duration of this request
     const _options = options || {};
     const _mteOptions = Object.assign(defaultMteRequestOptions, mteOptions);
     if (url instanceof Request && typeof url !== "string") {
@@ -94,6 +96,32 @@ async function sendMteRequest(
     let serverRecord = validateServer(url);
     serverOrigin = serverRecord.origin;
 
+    const doValidation =
+      serverRecord.status === "validate" || requestOptions?.revalidateServer;
+    if (doValidation) {
+      let mteRelayServerId;
+      try {
+        mteRelayServerId = await requestServerId(serverRecord.origin);
+      } catch (error: any) {
+        if (MteRelayError.isMteErrorStatus(error.status)) {
+          throw new MteRelayError(
+            MteRelayError.getStatusErrorMessages(error.status)!
+          );
+        } else {
+          setServerStatus(serverRecord.origin, "invalid");
+          throw new Error("Origin is not an MTE Relay server.");
+        }
+      }
+      await pairWithOrigin(serverRecord.origin).catch(() => {
+        setServerStatus(serverRecord.origin, "invalid");
+        throw new Error("Origin is not an MTE Relay server.");
+      });
+      serverRecord = setServerStatus(
+        serverRecord.origin,
+        "paired",
+        mteRelayServerId
+      );
+    }
     // if it's pending, recheck every (100 * i)ms
     if (serverRecord.status === "pending") {
       for (let i = 0; i < 20; ++i) {
@@ -112,23 +140,6 @@ async function sendMteRequest(
     }
     if (serverRecord.status === "invalid") {
       throw new Error("Origin is not an MTE Relay server.");
-    }
-    if (serverRecord.status === "validate") {
-      const mteRelayServerId = await requestServerId(serverRecord.origin).catch(
-        () => {
-          setServerStatus(serverRecord.origin, "invalid");
-          throw new Error("Origin is not an MTE Relay server.");
-        }
-      );
-      await pairWithOrigin(serverRecord.origin).catch(() => {
-        setServerStatus(serverRecord.origin, "invalid");
-        throw new Error("Origin is not an MTE Relay server.");
-      });
-      serverRecord = setServerStatus(
-        serverRecord.origin,
-        "paired",
-        mteRelayServerId
-      );
     }
 
     if (!serverRecord.serverId) {
@@ -245,9 +256,23 @@ async function sendMteRequest(
   } catch (error) {
     if (error instanceof MteRelayError) {
       deleteIdFromQueue({ serverId: originId, pairId });
+      if (error.status === 566) {
+        setServerStatus(serverOrigin, "pending");
+        CLIENT_ID = null;
+        expireCookie(CLIENT_ID_HEADER);
+        if (requestOptions?.isLastAttempt) {
+          throw new Error("Origin is not an MTE Relay server.");
+        }
+        return await sendMteRequest(url, options, mteOptions, {
+          revalidateServer: true,
+          isLastAttempt: true,
+        });
+      }
       pairWithOrigin(serverOrigin, 1);
-      if (!isSecondAttempt) {
-        return await sendMteRequest(url, options, mteOptions, true);
+      if (!requestOptions?.isLastAttempt) {
+        return await sendMteRequest(url, options, mteOptions, {
+          isLastAttempt: true,
+        });
       }
     }
     let message = "An unknown error occurred.";
@@ -278,6 +303,13 @@ async function requestServerId(origin: string) {
     credentials: "include",
     headers: _headers,
   });
+
+  if (MteRelayError.isMteErrorStatus(response.status)) {
+    throw new MteRelayError(
+      MteRelayError.getStatusErrorMessages(response.status)!
+    );
+  }
+
   if (!response.ok) {
     throw new Error("Origin is not an MTE Relay origin.");
   }
@@ -309,9 +341,9 @@ async function pairWithOrigin(origin: string, numberOfPairs?: number) {
   for (; i < iMax; ++i) {
     const pairId = generateRandomId();
     const encoderPersonalizationStr = generateRandomId();
-    const encoderEcdh = await getEcdh();
+    const encoderEcdh = await getEcdh("raw");
     const decoderPersonalizationStr = generateRandomId();
-    const decoderEcdh = await getEcdh();
+    const decoderEcdh = await getEcdh("raw");
 
     initValues.push({
       pairId,

@@ -6,6 +6,7 @@ const MTE_ERRORS = {
   "Failed to get state from encoder or decoder.": 563,
   "DRBG reseed is required.": 564,
   "MTE Status was not successful.": 565,
+  "Invalid Client ID header.": 566,
 } as const;
 
 const statusCodes: Set<number> = new Set(Object.values(MTE_ERRORS));

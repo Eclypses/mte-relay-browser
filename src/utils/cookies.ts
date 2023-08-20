@@ -77,3 +77,12 @@ export function getCookieValue(name: string): string | null {
 
   return null; // Cookie not found
 }
+
+/**
+ * Sets a cookie with the given name to an expired date, effectively deleting it.
+ *
+ * @param {string} cookieName - The name of the cookie to expire.
+ */
+export function expireCookie(cookieName: string): void {
+  document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+}
