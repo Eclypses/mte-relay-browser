@@ -1,6 +1,6 @@
 {
   "name": "mte-relay-browser",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "An MTE Relay module that runs in a Browser. It MTE encrypts all networks requests, and depends on a server-side MTE Relay module.",
   "type": "module",
   "scripts": {

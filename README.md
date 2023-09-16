@@ -55,29 +55,32 @@ await instantiateMteWasm({
   licenseKey: "LICENSE_KEY_HERE",
   numberEncoderDecoderPairs: 5,
   encoderDecoderPoolSize: 5,
+  defaultEncodeType: "MKE",
 });
 ```
 
 ### Options
 
 - `licenseCompany`
+  - **Required**
   - Type: string
-  - Required: true
   - The company name associated with your MTE license
 - `licenseKey`
+  - **Required**
   - Type: string
-  - Required: true
   - The license key associated with your MTE license
 - `numberEncoderDecoderPairs`
   - Type: number
-  - Required: false
   - Default: 5
-  - The number of encoder/decoder pairs to create. Each pair can encode/decode one request at a time.
+  - The number of encoder/decoder pairs to create when pairing with an MTE Relay server. Each pair can encode/decode one request at a time.
 - `encoderDecoderPoolSize`
   - Type: number
-  - Required: false
   - Default: 5
-  - The number of encoder/decoder pairs to keep in the pool. This should be less than or equal to the number of encoder/decoder pairs.
+  - The number of encoder/decoder objects to keep in the pool. This should be less than or equal to the number of encoder/decoder pairs.
+- `defaultEncodeType`
+  - Type: `MTE` | `MKE`
+  - Default: `MKE`
+  - The default encode type to use on all requests. `MKE` is faster and smaller and should be used for requests with large payloads, and most common requests. `MTE` is much more secure and should be used on all requests with sensitive data.
 
 ## Using mteFetch()
 
@@ -113,6 +116,10 @@ The third argument, `mteOptions`, is an object that can be used to configure MTE
   - Type: boolean | string[]
   - Default: true
   - If true, all headers passed to the mteFetch options object will be encoded. If false, no headers will be encoded. If an array of strings, only the headers in the array will be encoded.
+- `encodeType`
+  - Type: `MTE` | `MKE`
+  - Default: true
+  - Defines the type of encoding to used for this individual request. MKE is faster and smaller and should be used for requests with large payloads, and most common requests. MTE is much more secure and should be used on all requests with sensitive data.
 
 Example:
 
@@ -127,5 +134,6 @@ mteFetch('/api/admin/new-user', {
     password: 'P@ssw0rd!'
 }, {
   encodeHeaders: true
+  encodeType: 'MTE'
 });
 ```

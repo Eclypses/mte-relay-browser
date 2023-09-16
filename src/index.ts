@@ -13,6 +13,7 @@ import {
   CLIENT_ID_HEADER,
   MTE_ENCODED_HEADERS_HEADER,
   PAIR_ID_HEADER,
+  ENCODER_TYPE_HEADER,
 } from "./constants";
 import { setServerStatus, validateServer } from "./origin-cache";
 import { generateRandomId } from "./utils/generate-id";
@@ -23,6 +24,7 @@ import { setCookie, getCookieValue, expireCookie } from "./utils/cookies";
 
 let CLIENT_ID: string | null;
 let NUMBER_OF_PAIRS = 5;
+let DEFAULT_ENCRYPTION_TYPE: "MTE" | "MKE" = "MKE";
 
 /**
  * Instantiates the MTE WebAssembly module with the given options.
@@ -38,12 +40,16 @@ export async function instantiateMteWasm(options: {
   licenseCompany: string;
   numberEncoderDecoderPairs?: number;
   encoderDecoderPoolSize?: number;
+  defaultEncodeType?: "MTE" | "MKE";
 }) {
   if (options.numberEncoderDecoderPairs) {
     NUMBER_OF_PAIRS = options.numberEncoderDecoderPairs;
   }
   if (options.encoderDecoderPoolSize) {
     setEncoderDecoderPoolSize(options.encoderDecoderPoolSize);
+  }
+  if (options.defaultEncodeType) {
+    DEFAULT_ENCRYPTION_TYPE = options.defaultEncodeType;
   }
   await initWasm({
     licenseKey: options.licenseKey,
@@ -57,10 +63,7 @@ export async function instantiateMteWasm(options: {
 
 type MteRequestOptions = {
   encodeHeaders: boolean | string[];
-};
-
-const defaultMteRequestOptions: MteRequestOptions = {
-  encodeHeaders: true,
+  encodeType: "MTE" | "MKE";
 };
 
 // send encoded request
@@ -86,6 +89,13 @@ async function sendMteRequest(
   let pairId = "";
   let originId = "";
   let serverOrigin = "";
+
+  // default values, if they're not provided
+  const defaultMteRequestOptions: MteRequestOptions = {
+    encodeHeaders: true,
+    encodeType: DEFAULT_ENCRYPTION_TYPE,
+  };
+
   try {
     const _options = options || {};
     const _mteOptions = Object.assign(defaultMteRequestOptions, mteOptions);
@@ -207,6 +217,7 @@ async function sendMteRequest(
     const responseDecodedHeadersJson = await mkeDecode(responseEncodedHeaders, {
       id: `decoder.${serverId}.${pairId}`,
       output: "str",
+      type: _mteOptions.encodeType,
     });
     const responseDecodedHeaders = JSON.parse(
       responseDecodedHeadersJson as string
@@ -242,6 +253,7 @@ async function sendMteRequest(
       id: `decoder.${serverId}.${pairId}`,
       // @ts-ignore
       output: _output,
+      type: _mteOptions.encodeType,
     });
 
     // return decoded response
@@ -462,6 +474,7 @@ async function encodeRequest(
       const encodedHeader = await mkeEncode(headersJSON, {
         id: `encoder.${serverId}.${pairId}`,
         output: "B64",
+        type: mteOptions.encodeType,
       });
       headers.set(MTE_ENCODED_HEADERS_HEADER, encodedHeader as string);
       return headers;
@@ -495,6 +508,7 @@ async function encodeRequest(
       const encodedHeaders = await mkeEncode(headersJSON, {
         id: `encoder.${serverId}.${pairId}`,
         output: "B64",
+        type: mteOptions.encodeType,
       });
       headers.set(MTE_ENCODED_HEADERS_HEADER, encodedHeaders as string);
       return headers;
@@ -508,6 +522,7 @@ async function encodeRequest(
   _headers.set(CLIENT_ID_HEADER, CLIENT_ID!);
   _headers.set(PAIR_ID_HEADER, pairId);
   _headers.set("content-type", "application/octet-stream");
+  _headers.set(ENCODER_TYPE_HEADER, mteOptions.encodeType);
 
   _options.headers = _headers;
 
@@ -519,6 +534,7 @@ async function encodeRequest(
         _options.body = await mkeEncode(_options.body as any, {
           id: `encoder.${serverId}.${pairId}`,
           output: "Uint8Array",
+          type: mteOptions.encodeType,
         });
         return;
       }
@@ -528,6 +544,7 @@ async function encodeRequest(
         _options.body = await mkeEncode(_options.body as any, {
           id: `encoder.${serverId}.${pairId}`,
           output: "Uint8Array",
+          type: mteOptions.encodeType,
         });
         return;
       }
@@ -547,6 +564,7 @@ async function encodeRequest(
           const encodedKey = await mkeEncode(key, {
             id: `encoder.${serverId}.${pairId}`,
             output: "B64",
+            type: mteOptions.encodeType,
           });
 
           // handle value as a string
@@ -554,6 +572,7 @@ async function encodeRequest(
             const encodedValue = await mkeEncode(value, {
               id: `encoder.${serverId}.${pairId}`,
               output: "B64",
+              type: mteOptions.encodeType,
             });
             _encodedFormData.set(encodedKey as string, encodedValue as string);
             continue;
@@ -566,6 +585,7 @@ async function encodeRequest(
               fileName = (await mkeEncode(fileName, {
                 id: `encoder.${serverId}.${pairId}`,
                 output: "B64",
+                type: mteOptions.encodeType,
               })) as string;
               // URI encode the filename
               fileName = encodeURIComponent(fileName);
@@ -575,6 +595,7 @@ async function encodeRequest(
             const encodedValue = await mkeEncode(u8, {
               id: `encoder.${serverId}.${pairId}`,
               output: "Uint8Array",
+              type: mteOptions.encodeType,
             });
             _encodedFormData.set(
               encodedKey as string,
@@ -598,6 +619,7 @@ async function encodeRequest(
         _options.body = await mkeEncode(new Uint8Array(_options.body), {
           id: `encoder.${serverId}.${pairId}`,
           output: "Uint8Array",
+          type: mteOptions.encodeType,
         });
         return;
       }
@@ -607,6 +629,7 @@ async function encodeRequest(
         _options.body = await mkeEncode(_options.body.toString(), {
           id: `encoder.${serverId}.${pairId}`,
           output: "Uint8Array",
+          type: mteOptions.encodeType,
         });
         return;
       }
@@ -617,6 +640,7 @@ async function encodeRequest(
         _options.body = await mkeEncode(u8, {
           id: `encoder.${serverId}.${pairId}`,
           output: "Uint8Array",
+          type: mteOptions.encodeType,
         });
         return;
       }
@@ -628,6 +652,7 @@ async function encodeRequest(
         _options.body = await mkeEncode(u8, {
           id: `encoder.${serverId}.${pairId}`,
           output: "Uint8Array",
+          type: mteOptions.encodeType,
         });
         return;
       }
