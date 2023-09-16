@@ -1,4 +1,6 @@
 import {
+  MteEnc,
+  MteDec,
   MteMkeEnc,
   MteMkeDec,
   MteWasm,
@@ -10,6 +12,8 @@ import {
 import { setItem, takeItem } from "./memory-cache";
 import { MteRelayError } from "./errors";
 
+type EncDecTypes = "MTE" | "MKE";
+
 let mteWasm: MteWasm;
 
 const cache = {
@@ -17,8 +21,10 @@ const cache = {
   takeState: takeItem,
 };
 
-const encoderPool: MteMkeEnc[] = [];
-const decoderPool: MteMkeDec[] = [];
+const mteEncoderPool: MteEnc[] = [];
+const mteDecoderPool: MteDec[] = [];
+const mkeEncoderPool: MteMkeEnc[] = [];
+const mkeDecoderPool: MteMkeDec[] = [];
 
 // this should be overwritten by the initWasm function in index.js
 let MAX_POOL_SIZE = 5;
@@ -29,46 +35,64 @@ export function setEncoderDecoderPoolSize(size: number) {
 
 // fill pools with default encoders/decoders
 function fillPools() {
-  while (encoderPool.length < MAX_POOL_SIZE) {
-    encoderPool.push(MteMkeEnc.fromdefault(mteWasm));
-  }
-  while (decoderPool.length < MAX_POOL_SIZE) {
-    decoderPool.push(MteMkeDec.fromdefault(mteWasm, 1000, -63));
+  let i = 0;
+  while (i < MAX_POOL_SIZE) {
+    ++i;
+    mkeEncoderPool.push(MteMkeEnc.fromdefault(mteWasm));
+    mkeDecoderPool.push(MteMkeDec.fromdefault(mteWasm, 1000, -63));
+    mteEncoderPool.push(MteEnc.fromdefault(mteWasm));
+    mteDecoderPool.push(MteDec.fromdefault(mteWasm));
   }
 }
 
 // get encoder from pool, or create a new default encoder if pool is empty
-function getEncoderFromPool() {
-  const encoder = encoderPool.pop();
-  if (!encoder) {
-    return MteMkeEnc.fromdefault(mteWasm);
+function getEncoderFromPool(type: EncDecTypes) {
+  if (type === "MTE") {
+    const encoder = mteEncoderPool.pop();
+    return encoder || MteEnc.fromdefault(mteWasm);
   }
-  return encoder;
+  const encoder = mkeEncoderPool.pop();
+  return encoder || MteMkeEnc.fromdefault(mteWasm);
 }
 
 // get decoder from pool, or create a new default decoder if pool is empty
-function getDecoderFromPool() {
-  const decoder = decoderPool.pop();
-  if (!decoder) {
-    return MteMkeDec.fromdefault(mteWasm, 1000, -63);
+function getDecoderFromPool(type: EncDecTypes) {
+  if (type === "MTE") {
+    const decoder = mteDecoderPool.pop();
+    return decoder || MteDec.fromdefault(mteWasm);
   }
-  return decoder;
+  const decoder = mkeDecoderPool.pop();
+  return decoder || MteMkeDec.fromdefault(mteWasm, 1000, -63);
 }
 
 // return encoder to pool, or destruct if pool is full
-function returnEncoderToPool(encoder: MteMkeEnc) {
-  if (encoderPool.length < MAX_POOL_SIZE) {
+function returnEncoderToPool(encoder: MteMkeEnc | MteEnc) {
+  if (encoder instanceof MteEnc) {
+    if (mteEncoderPool.length < MAX_POOL_SIZE) {
+      encoder.uninstantiate();
+      return mteEncoderPool.push(encoder);
+    }
+    return encoder.destruct();
+  }
+  if (mkeEncoderPool.length < MAX_POOL_SIZE) {
     encoder.uninstantiate();
-    return encoderPool.push(encoder);
+    return mkeEncoderPool.push(encoder);
   }
   return encoder.destruct();
 }
 
 // return decoder to pool, or destruct if pool is full
-function returnDecoderToPool(decoder: MteMkeDec) {
-  if (decoderPool.length < MAX_POOL_SIZE) {
+function returnDecoderToPool(decoder: MteMkeDec | MteDec) {
+  if (decoder instanceof MteDec) {
+    if (mteDecoderPool.length < MAX_POOL_SIZE) {
+      decoder.uninstantiate();
+      return mteDecoderPool.push(decoder);
+    }
+    return decoder.destruct();
+  }
+  if (mkeDecoderPool.length < MAX_POOL_SIZE) {
     decoder.uninstantiate();
-    return decoderPool.push(decoder);
+    return mkeDecoderPool.push(decoder);
   }
   return decoder.destruct();
 }
@@ -162,7 +186,7 @@ export async function instantiateEncoder(options: {
   nonce: string;
   personalization: string;
 }) {
-  const encoder = getEncoderFromPool();
+  const encoder = getEncoderFromPool("MTE");
   encoder.setEntropyArr(options.entropy);
   encoder.setNonce(options.nonce);
   const initResult = encoder.instantiate(options.personalization);
@@ -192,7 +216,7 @@ export async function instantiateDecoder(options: {
   nonce: string;
   personalization: string;
 }) {
-  const decoder = getDecoderFromPool();
+  const decoder = getDecoderFromPool("MTE");
   decoder.setEntropyArr(options.entropy);
   decoder.setNonce(options.nonce);
   const initResult = decoder.instantiate(options.personalization);
@@ -217,9 +241,13 @@ export async function instantiateDecoder(options: {
  */
 export async function mkeEncode(
   payload: string | Uint8Array,
-  options: { id: string; output: "B64" | "Uint8Array" }
+  options: {
+    id: string;
+    output: "B64" | "Uint8Array";
+    type: EncDecTypes;
+  }
 ) {
-  const encoder = getEncoderFromPool();
+  const encoder = getEncoderFromPool(options.type);
   const currentState = await cache.takeState(options.id);
   if (!currentState) {
     returnEncoderToPool(encoder);
@@ -228,11 +256,14 @@ export async function mkeEncode(
     });
   }
   restoreMteState(encoder, currentState);
-  const nextStateResult = encoder.encodeStr("\0");
-  validateStatusIsSuccess(nextStateResult.status, encoder);
-  const nextState = getMteState(encoder);
-  await cache.saveState(options.id, nextState);
-  restoreMteState(encoder, currentState);
+  if (options.type === "MKE") {
+    // nextState generation + save nextState in cache
+    const nextStateResult = encoder.encodeStr("");
+    validateStatusIsSuccess(nextStateResult.status, encoder);
+    const nextState = getMteState(encoder);
+    await cache.saveState(options.id, nextState);
+    restoreMteState(encoder, currentState);
+  }
   let encodeResult: MteArrStatus | MteStrStatus;
   try {
     if (payload instanceof Uint8Array) {
@@ -249,6 +280,10 @@ export async function mkeEncode(
       }
     }
     validateStatusIsSuccess(encodeResult.status, encoder);
+    if (options.type === "MTE") {
+      const state = getMteState(encoder);
+      await cache.saveState(options.id, state);
+    }
   } catch (error) {
     throw new MteRelayError("Failed to encode.", {
       stateId: options.id,
@@ -272,7 +307,11 @@ export async function mkeEncode(
  */
 export async function mkeDecode(
   payload: string | Uint8Array,
-  options: { id: string; output: "str" | "Uint8Array" }
+  options: {
+    id: string;
+    output: "str" | "Uint8Array";
+    type: EncDecTypes;
+  }
 ) {
   const currentState = await cache.takeState(options.id);
   if (!currentState) {
@@ -280,7 +319,7 @@ export async function mkeDecode(
       stateId: options.id,
     });
   }
-  const decoder = getDecoderFromPool();
+  const decoder = getDecoderFromPool(options.type);
   restoreMteState(decoder, currentState);
   drbgReseedCheck(decoder);
   let decodeResult: MteArrStatus | MteStrStatus;
@@ -328,7 +367,7 @@ function validateStatusIsSuccess(status: MteStatus, mteBase: MteBase) {
 }
 
 // restore state to any encoder or decoder
-type EncDec = MteMkeEnc | MteMkeDec;
+type EncDec = MteMkeEnc | MteMkeDec | MteEnc | MteDec;
 function restoreMteState(encdec: EncDec, state: string): void {
   const result = encdec.restoreStateB64(state);
   validateStatusIsSuccess(result, encdec);
