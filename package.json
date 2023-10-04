@@ -1,10 +1,10 @@
 {
   "name": "mte-relay-browser",
-  "version": "3.1.0",
+  "version": "4.0.0-beta.0",
   "description": "An MTE Relay module that runs in a Browser. It MTE encrypts all networks requests, and depends on a server-side MTE Relay module.",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite build --watch",
     "build": "tsc && vite build",
     "publish": "npm run build && npm publish",
     "publish:beta": "npm run build && npm publish --tag beta"
@@ -20,9 +20,7 @@
   "peerDependencies": {
     "mte": "^3.0.0"
   },
-  "dependencies": {
-    "lodash.clonedeep": "^4.5.0"
-  },
+  "dependencies": {},
   "files": [
     "dist"
   ],

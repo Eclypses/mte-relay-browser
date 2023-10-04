@@ -10,11 +10,8 @@ export type MteRelayRecord = {
 
 const serverMap = new Map<string, MteRelayRecord>();
 
-export function validateServer(url: string): MteRelayRecord {
-  const _url = new URL(url);
-  const origin = _url.origin;
+export function validateServer(origin: string): MteRelayRecord {
   const serverRecord = serverMap.get(origin);
-
   if (!serverRecord) {
     serverMap.set(origin, {
       origin,

@@ -18,7 +18,6 @@ import {
 import { setServerStatus, validateServer } from "./origin-cache";
 import { generateRandomId } from "./utils/generate-id";
 import { getEcdh } from "./utils/ecdh";
-import cloneDeep from "lodash.clonedeep";
 import { MteRelayError } from "./mte/errors";
 import { setCookie, getCookieValue, expireCookie } from "./utils/cookies";
 
@@ -90,25 +89,36 @@ async function sendMteRequest(
   let originId = "";
   let serverOrigin = "";
 
-  // default values, if they're not provided
-  const defaultMteRequestOptions: MteRequestOptions = {
-    encodeHeaders: true,
-    encodeType: DEFAULT_ENCRYPTION_TYPE,
-  };
-
   try {
-    const _options = options || {};
-    const _mteOptions = Object.assign(defaultMteRequestOptions, mteOptions);
-    if (url instanceof Request && typeof url !== "string") {
-      throw new Error("Request not support yet. Use string url for now.");
+    // use or create Request object
+    let _request: Request;
+    if (url instanceof Request) {
+      _request = url;
+    } else {
+      _request = new Request(url, options);
     }
+    const _url = new URL(_request.url);
 
-    let serverRecord = validateServer(url);
-    serverOrigin = serverRecord.origin;
+    // preserve server origin, incase request fails and we need to resend
+    serverOrigin = _url.origin;
 
-    const doValidation =
-      serverRecord.status === "validate" || requestOptions?.revalidateServer;
-    if (doValidation) {
+    // validate server is MTE Relay server
+    let serverRecord = validateServer(serverOrigin);
+
+    // default values, if they're not provided
+    const defaultMteRequestOptions: MteRequestOptions = {
+      encodeHeaders: true,
+      encodeType: DEFAULT_ENCRYPTION_TYPE,
+    };
+
+    // init options objects
+    const _mteOptions = Object.assign(defaultMteRequestOptions, mteOptions);
+
+    // validate server is MTE Relay Server, pair with it
+    if (
+      serverRecord.status === "validate" ||
+      requestOptions?.revalidateServer
+    ) {
       let mteRelayServerId;
       try {
         mteRelayServerId = await requestServerId(serverRecord.origin);
@@ -132,11 +142,12 @@ async function sendMteRequest(
         mteRelayServerId
       );
     }
+
     // if it's pending, recheck every (100 * i)ms
     if (serverRecord.status === "pending") {
       for (let i = 0; i < 20; ++i) {
         await sleep((1 + i) * 100);
-        serverRecord = validateServer(url);
+        serverRecord = validateServer(serverOrigin);
         if (serverRecord.status === "paired") {
           break;
         }
@@ -151,16 +162,9 @@ async function sendMteRequest(
     if (serverRecord.status === "invalid") {
       throw new Error("Origin is not an MTE Relay server.");
     }
-
     if (!serverRecord.serverId) {
       throw new Error("Origin is not an MTE Relay server.");
     }
-
-    // no-store response
-    _options.cache = "no-store";
-
-    // add headers if they do not exist
-    _options.headers = new Headers(_options.headers || {});
 
     pairId = getNextPairIdFromQueue(serverRecord.serverId);
     originId = serverRecord.serverId;
@@ -168,8 +172,8 @@ async function sendMteRequest(
     /**
      * MTE Encode Headers and Body (if they exist)
      */
-    const encodedOptions = await encodeRequest(
-      _options,
+    const encodedRequest = await encodeRequest(
+      _request,
       _mteOptions,
       originId,
       pairId
@@ -178,7 +182,7 @@ async function sendMteRequest(
     /**
      * Send the request
      */
-    let response = await fetch(url, encodedOptions);
+    let response = await fetch(encodedRequest);
 
     // handle a bad response
     if (!response.ok) {
@@ -211,59 +215,49 @@ async function sendMteRequest(
     }
 
     // decode encoded headers
-    const responseEncodedHeaders = response.headers.get(
+    const responseHeaders = new Headers(response.headers);
+    const responseEncodedHeaders = responseHeaders.get(
       MTE_ENCODED_HEADERS_HEADER
-    )!;
-    const responseDecodedHeadersJson = await mkeDecode(responseEncodedHeaders, {
-      id: `decoder.${serverId}.${pairId}`,
-      output: "str",
-      type: _mteOptions.encodeType,
-    });
-    const responseDecodedHeaders = JSON.parse(
-      responseDecodedHeadersJson as string
     );
-
-    // get response as blob
-    const blob = await response.blob();
-
-    // if blob is empty, return early
-    if (blob.size < 1) {
-      // return decoded response
-      return new Response(null, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: {
-          ...response.headers,
-          ...responseDecodedHeaders,
-        },
-      });
+    if (responseEncodedHeaders) {
+      const responseDecodedHeadersJson = await mkeDecode(
+        responseEncodedHeaders,
+        {
+          id: `decoder.${serverId}.${responsePairId}`,
+          output: "str",
+          type: _mteOptions.encodeType,
+        }
+      );
+      const responseDecodedHeaders = JSON.parse(
+        responseDecodedHeadersJson as string
+      );
+      for (const headerName in responseDecodedHeaders) {
+        responseHeaders.set(headerName, responseDecodedHeaders[headerName]);
+      }
     }
+    responseHeaders.delete(MTE_ENCODED_HEADERS_HEADER);
+    responseHeaders.delete(CLIENT_ID_HEADER);
+    responseHeaders.delete(PAIR_ID_HEADER);
+    responseHeaders.delete(ENCODER_TYPE_HEADER);
 
-    const buffer = await blob.arrayBuffer();
-    const u8 = new Uint8Array(buffer);
-
-    let contentType = "application/json";
-    const _contentType = responseDecodedHeaders["content-type"];
-    if (_contentType) {
-      contentType = _contentType;
+    // decode response body, if present
+    let decryptedBody: Uint8Array | null = null;
+    if (response.body) {
+      const buffer = await response.arrayBuffer();
+      const u8 = new Uint8Array(buffer);
+      decryptedBody = (await mkeDecode(u8, {
+        id: `decoder.${serverId}.${responsePairId}`,
+        // @ts-ignore
+        output: "Uint8Array",
+        type: _mteOptions.encodeType,
+      })) as Uint8Array;
     }
-    const _output = contentTypeIsText(contentType) ? "str" : "Uint8Array";
-
-    const decodedBody = await mkeDecode(u8, {
-      id: `decoder.${serverId}.${pairId}`,
-      // @ts-ignore
-      output: _output,
-      type: _mteOptions.encodeType,
-    });
 
     // return decoded response
-    return new Response(decodedBody, {
+    return new Response(decryptedBody, {
+      headers: responseHeaders,
       status: response.status,
       statusText: response.statusText,
-      headers: {
-        ...response.headers,
-        ...responseDecodedHeaders,
-      },
     });
   } catch (error) {
     if (error instanceof MteRelayError) {
@@ -293,12 +287,6 @@ async function sendMteRequest(
     }
     throw Error(message);
   }
-}
-
-// determine if encoded content should be decoded to text or to UInt8Array
-function contentTypeIsText(contentType: string) {
-  const textsTypes = ["text", "json", "xml", "javascript"];
-  return textsTypes.some((i) => contentType.toLowerCase().includes(i));
 }
 
 /**
@@ -438,254 +426,94 @@ async function pairWithOrigin(origin: string, numberOfPairs?: number) {
  * encode headers and body of request
  */
 async function encodeRequest(
-  options: RequestInit,
+  request: Request,
   mteOptions: MteRequestOptions,
   serverId: string,
   pairId: string
 ) {
-  // clone original into new copy and modify copy
-  const _options = cloneDeep(options);
+  // create an object of headers to be JSON stringified and encoded
+  const headersToEncode: Record<string, string> = {};
 
-  // encode the content-type header (if it exists)
-  const headers = new Headers(_options.headers);
+  // always encode content-type
+  const contentType = request.headers.get("content-type");
+  if (contentType) {
+    headersToEncode["content-type"] = contentType;
+  }
 
-  // encode headers
-  const _headers: Headers = await (async () => {
-    const headersToEncode: Record<string, string> = {};
-
-    // original content-type ALWAYS must be encoded and preserved (because we have to change content-type to application/octet-stream)
-    const contentType = headers.get("content-type");
-    if (contentType) {
-      headersToEncode["content-type"] = contentType;
-    }
-
-    // if boolean, encode all or nothing
-    if (typeof mteOptions.encodeHeaders === "boolean") {
-      if (mteOptions.encodeHeaders === true) {
-        for (const [name, value] of headers.entries()) {
-          headersToEncode[name] = value;
-          headers.delete(name);
-        }
+  // if true, copy all additional headers to be encoded
+  if (mteOptions.encodeHeaders === true) {
+    request.headers.forEach((value, name) => {
+      if (name === "content-type") {
+        return;
       }
-      if (isObjectEmpty(headersToEncode)) {
-        return headers;
-      }
-      const headersJSON = JSON.stringify(headersToEncode);
-      const encodedHeader = await mkeEncode(headersJSON, {
-        id: `encoder.${serverId}.${pairId}`,
-        output: "B64",
-        type: mteOptions.encodeType,
-      });
-      headers.set(MTE_ENCODED_HEADERS_HEADER, encodedHeader as string);
-      return headers;
-    }
+      headersToEncode[name] = value;
+    });
+  }
 
-    // if array, encode just those headers
-    if (Array.isArray(mteOptions.encodeHeaders)) {
-      const allStrings = mteOptions.encodeHeaders.every(
-        (i) => typeof i === "string"
+  // if array, copy just those headers to be encoded
+  if (Array.isArray(mteOptions.encodeHeaders)) {
+    if (mteOptions.encodeHeaders.some((i) => typeof i !== "string")) {
+      throw Error(
+        `Expected an array of strings for mteOptions.encodeHeaders, but received ${mteOptions.encodeHeaders}.`
       );
-      if (!allStrings) {
-        throw Error(
-          `Expected an array of strings for mteOptions.encodeHeaders, but received ${mteOptions.encodeHeaders}.`
-        );
-      }
-      // encode each header (except content-type header, which is ALWAYS encoded)
-      const sansContentType = mteOptions.encodeHeaders.filter(
-        (i) => i !== "content-type"
-      );
-      if (isObjectEmpty(sansContentType)) {
-        return headers;
-      }
-      for (const headerName of sansContentType) {
-        const headerValue = headers.get(headerName);
-        if (headerValue) {
-          headersToEncode[headerName] = headerValue;
-          headers.delete(headerName);
-        }
-      }
-      const headersJSON = JSON.stringify(headersToEncode);
-      const encodedHeaders = await mkeEncode(headersJSON, {
-        id: `encoder.${serverId}.${pairId}`,
-        output: "B64",
-        type: mteOptions.encodeType,
-      });
-      headers.set(MTE_ENCODED_HEADERS_HEADER, encodedHeaders as string);
-      return headers;
     }
-    throw Error(
-      `Unexpected type for mteOptions.encodeHeaders. Expected boolean or string array, but received ${typeof mteOptions.encodeHeaders}.`
-    );
-  })();
+    mteOptions.encodeHeaders.forEach((headerName) => {
+      if (headerName === "content-type") {
+        return;
+      }
+      const headerValue = request.headers.get(headerName);
+      if (headerValue) {
+        headersToEncode[headerName] = headerValue;
+      }
+    });
+  }
+
+  const _headers = new Headers(request.headers);
+
+  if (Object.keys(headersToEncode).length > 0) {
+    const headersJSON = JSON.stringify(headersToEncode);
+    const encodedHeaders = (await mkeEncode(headersJSON, {
+      id: `encoder.${serverId}.${pairId}`,
+      output: "B64",
+      type: mteOptions.encodeType,
+    })) as string;
+    _headers.set(MTE_ENCODED_HEADERS_HEADER, encodedHeaders);
+  }
 
   // append mte relay client and session IDs
   _headers.set(CLIENT_ID_HEADER, CLIENT_ID!);
   _headers.set(PAIR_ID_HEADER, pairId);
-  _headers.set("content-type", "application/octet-stream");
   _headers.set(ENCODER_TYPE_HEADER, mteOptions.encodeType);
 
-  _options.headers = _headers;
-
-  // Determine how to encode the body (if it exists)
-  if (_options.body) {
-    await (async () => {
-      // handle strings
-      if (typeof _options.body === "string") {
-        _options.body = await mkeEncode(_options.body as any, {
-          id: `encoder.${serverId}.${pairId}`,
-          output: "Uint8Array",
-          type: mteOptions.encodeType,
-        });
-        return;
-      }
-
-      // handle Uint8Arrays
-      if (_options.body instanceof Uint8Array) {
-        _options.body = await mkeEncode(_options.body as any, {
-          id: `encoder.${serverId}.${pairId}`,
-          output: "Uint8Array",
-          type: mteOptions.encodeType,
-        });
-        return;
-      }
-
-      // handle FormData
-      if (_options.body instanceof FormData) {
-        // delete content-type header, it is set by browser
-        _headers.delete("content-type");
-
-        // create new formData object
-        const _encodedFormData = new FormData();
-
-        // loop over all entries of the original formData
-        const entries = _options.body.entries();
-        for await (const [key, value] of entries) {
-          // encode the key
-          const encodedKey = await mkeEncode(key, {
-            id: `encoder.${serverId}.${pairId}`,
-            output: "B64",
-            type: mteOptions.encodeType,
-          });
-
-          // handle value as a string
-          if (typeof value === "string") {
-            const encodedValue = await mkeEncode(value, {
-              id: `encoder.${serverId}.${pairId}`,
-              output: "B64",
-              type: mteOptions.encodeType,
-            });
-            _encodedFormData.set(encodedKey as string, encodedValue as string);
-            continue;
-          }
-
-          // handle value as a File object
-          if (value instanceof File) {
-            let fileName = value.name;
-            if (fileName) {
-              fileName = (await mkeEncode(fileName, {
-                id: `encoder.${serverId}.${pairId}`,
-                output: "B64",
-                type: mteOptions.encodeType,
-              })) as string;
-              // URI encode the filename
-              fileName = encodeURIComponent(fileName);
-            }
-            const buffer = await value.arrayBuffer();
-            const u8 = new Uint8Array(buffer);
-            const encodedValue = await mkeEncode(u8, {
-              id: `encoder.${serverId}.${pairId}`,
-              output: "Uint8Array",
-              type: mteOptions.encodeType,
-            });
-            _encodedFormData.set(
-              encodedKey as string,
-              new File([encodedValue as string], fileName)
-            );
-            continue;
-          }
-
-          // throw error if we don't know what the value type is
-          console.log(typeof value, value);
-          throw new Error("Unknown value to encode.");
-        }
-
-        // set the value of the body to our newly encoded formData
-        _options.body = _encodedFormData;
-        return;
-      }
-
-      // handle arraybuffers
-      if (_options.body instanceof ArrayBuffer) {
-        _options.body = await mkeEncode(new Uint8Array(_options.body), {
-          id: `encoder.${serverId}.${pairId}`,
-          output: "Uint8Array",
-          type: mteOptions.encodeType,
-        });
-        return;
-      }
-
-      // handle URLSearchParams
-      if (_options.body instanceof URLSearchParams) {
-        _options.body = await mkeEncode(_options.body.toString(), {
-          id: `encoder.${serverId}.${pairId}`,
-          output: "Uint8Array",
-          type: mteOptions.encodeType,
-        });
-        return;
-      }
-
-      // handle DataView
-      if ((_options.body as DataView).buffer instanceof ArrayBuffer) {
-        const u8 = new Uint8Array((_options.body as DataView).buffer);
-        _options.body = await mkeEncode(u8, {
-          id: `encoder.${serverId}.${pairId}`,
-          output: "Uint8Array",
-          type: mteOptions.encodeType,
-        });
-        return;
-      }
-
-      // handle Blob, File, etc...
-      if (typeof (_options.body as Blob).arrayBuffer === "function") {
-        const buffer = await (_options.body as Blob).arrayBuffer();
-        const u8 = new Uint8Array(buffer);
-        _options.body = await mkeEncode(u8, {
-          id: `encoder.${serverId}.${pairId}`,
-          output: "Uint8Array",
-          type: mteOptions.encodeType,
-        });
-        return;
-      }
-
-      // handle readable stream
-      if (_options.body instanceof ReadableStream) {
-        throw new Error("Readable streams are not supported, yet.");
-      }
-    })();
+  // encode body
+  let encryptedBody: ReadableStream<Uint8Array> | Uint8Array | null = null;
+  if (request.body !== null) {
+    const ab = await request.arrayBuffer();
+    const u8 = new Uint8Array(ab);
+    const encodedBody = await mkeEncode(u8, {
+      id: `encoder.${serverId}.${pairId}`,
+      output: "Uint8Array",
+      type: mteOptions.encodeType,
+    });
+    encryptedBody = encodedBody as Uint8Array;
+    _headers.set("content-type", "application/octet-stream");
   }
 
-  return _options;
-}
+  const _request = new Request(request.url, {
+    // list all properties of request object
+    body: encryptedBody,
+    cache: "no-cache",
+    credentials: request.credentials,
+    headers: _headers,
+    method: request.method,
+    mode: request.mode,
+    redirect: request.redirect,
+    referrer: request.referrer,
+    referrerPolicy: request.referrerPolicy,
+    signal: request.signal,
+  });
 
-/**
- * Checks if an object is empty.
- * @param obj - The object to check.
- * @returns True if the object is empty, false otherwise.
- */
-function isObjectEmpty(obj: object | null): boolean {
-  // Check if obj is an object
-  if (typeof obj !== "object" || obj === null) {
-    return false;
-  }
-
-  // Check if obj has any own properties
-  for (const key in obj) {
-    if (Object.prototype.hasOwnProperty.call(obj, key)) {
-      return false;
-    }
-  }
-
-  return true;
+  return _request;
 }
 
 function sleep(ms: number): Promise<void> {
