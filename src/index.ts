@@ -431,6 +431,23 @@ async function encodeRequest(
   serverId: string,
   pairId: string
 ) {
+  // encrypt the route: /path/to/thing?query=string&query2=string2
+  const requestUrl = new URL(request.url);
+  const route = requestUrl.pathname.slice(1) + requestUrl.search;
+  const encryptedRoute = (await mkeEncode(route, {
+    id: `encoder.${serverId}.${pairId}`,
+    output: "B64",
+    type: mteOptions.encodeType,
+  })) as string;
+  const uriEncoded = encodeURIComponent(encryptedRoute);
+  const encryptedUrl = requestUrl.origin + "/" + uriEncoded;
+  // if longer than 2048 throw error - should this be an MTE Relay Error?
+  if (encryptedUrl.length > 2048) {
+    throw new Error(
+      "The encrypted URL is longer than 2048 characters. Please use a shorter URL."
+    );
+  }
+
   // create an object of headers to be JSON stringified and encoded
   const headersToEncode: Record<string, string> = {};
 
@@ -499,7 +516,7 @@ async function encodeRequest(
     _headers.set("content-type", "application/octet-stream");
   }
 
-  const _request = new Request(request.url, {
+  const _request = new Request(encryptedUrl, {
     // list all properties of request object
     body: encryptedBody,
     cache: "no-cache",
