@@ -2,20 +2,16 @@ import {
   instantiateDecoder,
   instantiateEncoder,
   instantiateMteWasm as initWasm,
-  mkeDecode,
-  mkeEncode,
+  decode,
   getNextPairIdFromQueue,
-  setEncoderDecoderPoolSize,
   deleteIdFromQueue,
-} from "./mte";
-import {
-  SERVER_ID_HEADER,
+  encodeRequest,
   CLIENT_ID_HEADER,
   MTE_ENCODED_HEADERS_HEADER,
   PAIR_ID_HEADER,
   ENCODER_TYPE_HEADER,
-} from "./constants";
-import { setServerStatus, validateServer } from "./origin-cache";
+} from "./mte";
+import { setRemoteStatus, getRemoteRecordByOrigin } from "./mte/cache";
 import { generateRandomId } from "./utils/generate-id";
 import { getEcdh } from "./utils/ecdh";
 import { MteRelayError } from "./mte/errors";
@@ -23,7 +19,7 @@ import { setCookie, getCookieValue, expireCookie } from "./utils/cookies";
 
 let CLIENT_ID: string | null;
 let NUMBER_OF_PAIRS = 5;
-let DEFAULT_ENCRYPTION_TYPE: "MTE" | "MKE" = "MKE";
+let DEFAULT_ENCODE_TYPE: "MTE" | "MKE" = "MKE";
 
 /**
  * Instantiates the MTE WebAssembly module with the given options.
@@ -37,22 +33,22 @@ let DEFAULT_ENCRYPTION_TYPE: "MTE" | "MKE" = "MKE";
 export async function instantiateMteWasm(options: {
   licenseKey: string;
   licenseCompany: string;
-  numberEncoderDecoderPairs?: number;
-  encoderDecoderPoolSize?: number;
+  numberOfPairs?: number;
+  mtePoolSize?: number;
+  mkePoolSize?: number;
   defaultEncodeType?: "MTE" | "MKE";
 }) {
-  if (options.numberEncoderDecoderPairs) {
-    NUMBER_OF_PAIRS = options.numberEncoderDecoderPairs;
-  }
-  if (options.encoderDecoderPoolSize) {
-    setEncoderDecoderPoolSize(options.encoderDecoderPoolSize);
+  if (options.numberOfPairs) {
+    NUMBER_OF_PAIRS = options.numberOfPairs;
   }
   if (options.defaultEncodeType) {
-    DEFAULT_ENCRYPTION_TYPE = options.defaultEncodeType;
+    DEFAULT_ENCODE_TYPE = options.defaultEncodeType;
   }
   await initWasm({
     licenseKey: options.licenseKey,
     companyName: options.licenseCompany,
+    mkePoolSize: options.mkePoolSize,
+    mtePoolSize: options.mtePoolSize,
   });
   const clientId = getCookieValue(CLIENT_ID_HEADER);
   if (clientId) {
@@ -86,8 +82,7 @@ async function sendMteRequest(
   }
 ): Promise<Response> {
   let pairId = "";
-  let originId = "";
-  let serverOrigin = "";
+  let remoteOrigin = "";
 
   try {
     // use or create Request object
@@ -100,54 +95,56 @@ async function sendMteRequest(
     const _url = new URL(_request.url);
 
     // preserve server origin, incase request fails and we need to resend
-    serverOrigin = _url.origin;
+    remoteOrigin = _url.origin;
 
     // validate server is MTE Relay server
-    let serverRecord = validateServer(serverOrigin);
+    let serverRecord = await getRemoteRecordByOrigin(remoteOrigin);
 
-    // default values, if they're not provided
-    const defaultMteRequestOptions: MteRequestOptions = {
-      encodeHeaders: true,
-      encodeType: DEFAULT_ENCRYPTION_TYPE,
+    // init options
+    const _mteOptions: MteRequestOptions = {
+      encodeHeaders: mteOptions?.encodeHeaders ?? true,
+      encodeType: mteOptions?.encodeType || DEFAULT_ENCODE_TYPE,
     };
 
-    // init options objects
-    const _mteOptions = Object.assign(defaultMteRequestOptions, mteOptions);
-
-    // validate server is MTE Relay Server, pair with it
+    // validate remote is MTE Relay Server and pair with it
     if (
-      serverRecord.status === "validate" ||
+      serverRecord.status === "validate-now" ||
       requestOptions?.revalidateServer
     ) {
-      let mteRelayServerId;
       try {
-        mteRelayServerId = await requestServerId(serverRecord.origin);
+        serverRecord = await validateRemoteIsMteRelay(serverRecord.origin);
       } catch (error: any) {
         if (MteRelayError.isMteErrorStatus(error.status)) {
           throw new MteRelayError(
             MteRelayError.getStatusErrorMessages(error.status)!
           );
         } else {
-          setServerStatus(serverRecord.origin, "invalid");
+          setRemoteStatus({
+            origin: serverRecord.origin,
+            status: "invalid",
+          });
           throw new Error("Origin is not an MTE Relay server.");
         }
       }
       await pairWithOrigin(serverRecord.origin).catch(() => {
-        setServerStatus(serverRecord.origin, "invalid");
+        setRemoteStatus({
+          origin: serverRecord.origin,
+          status: "invalid",
+        });
         throw new Error("Origin is not an MTE Relay server.");
       });
-      serverRecord = setServerStatus(
-        serverRecord.origin,
-        "paired",
-        mteRelayServerId
-      );
+      serverRecord = await setRemoteStatus({
+        origin: serverRecord.origin,
+        status: "paired",
+        clientId: serverRecord.clientId!,
+      });
     }
 
     // if it's pending, recheck every (100 * i)ms
     if (serverRecord.status === "pending") {
       for (let i = 0; i < 20; ++i) {
         await sleep((1 + i) * 100);
-        serverRecord = validateServer(serverOrigin);
+        serverRecord = await getRemoteRecordByOrigin(remoteOrigin);
         if (serverRecord.status === "paired") {
           break;
         }
@@ -162,22 +159,21 @@ async function sendMteRequest(
     if (serverRecord.status === "invalid") {
       throw new Error("Origin is not an MTE Relay server.");
     }
-    if (!serverRecord.serverId) {
+    if (!serverRecord.clientId) {
       throw new Error("Origin is not an MTE Relay server.");
     }
 
-    pairId = getNextPairIdFromQueue(serverRecord.serverId);
-    originId = serverRecord.serverId;
+    pairId = await getNextPairIdFromQueue(serverRecord.origin);
 
     /**
      * MTE Encode Headers and Body (if they exist)
      */
-    const encodedRequest = await encodeRequest(
-      _request,
-      _mteOptions,
-      originId,
-      pairId
-    );
+    const encodedRequest = await encodeRequest(_request, {
+      pairId,
+      clientId: serverRecord.clientId,
+      type: _mteOptions.encodeType,
+      originId: serverRecord.origin,
+    });
 
     /**
      * Send the request
@@ -193,12 +189,6 @@ async function sendMteRequest(
         }
       }
       return response;
-    }
-
-    // get server ID
-    const serverId = response.headers.get(SERVER_ID_HEADER);
-    if (!serverId) {
-      throw new Error(`Response is missing header: ${SERVER_ID_HEADER}`);
     }
 
     // save client ID
@@ -220,16 +210,18 @@ async function sendMteRequest(
       MTE_ENCODED_HEADERS_HEADER
     );
     if (responseEncodedHeaders) {
-      const responseDecodedHeadersJson = await mkeDecode(
-        responseEncodedHeaders,
-        {
-          id: `decoder.${serverId}.${responsePairId}`,
-          output: "str",
-          type: _mteOptions.encodeType,
-        }
-      );
+      const responseDecodedHeadersJson = await decode({
+        id: `decoder.${serverRecord.origin}.${responsePairId}`,
+        items: [
+          {
+            data: responseEncodedHeaders,
+            output: "str",
+          },
+        ],
+        type: _mteOptions.encodeType,
+      });
       const responseDecodedHeaders = JSON.parse(
-        responseDecodedHeadersJson as string
+        responseDecodedHeadersJson[0] as string
       );
       for (const headerName in responseDecodedHeaders) {
         responseHeaders.set(headerName, responseDecodedHeaders[headerName]);
@@ -245,12 +237,17 @@ async function sendMteRequest(
     if (response.body) {
       const buffer = await response.arrayBuffer();
       const u8 = new Uint8Array(buffer);
-      decryptedBody = (await mkeDecode(u8, {
-        id: `decoder.${serverId}.${responsePairId}`,
-        // @ts-ignore
-        output: "Uint8Array",
+      const decoded = await decode({
+        id: `decoder.${serverRecord.origin}.${responsePairId}`,
         type: _mteOptions.encodeType,
-      })) as Uint8Array;
+        items: [
+          {
+            data: u8,
+            output: "Uint8Array",
+          },
+        ],
+      });
+      decryptedBody = decoded[0] as Uint8Array;
     }
 
     // return decoded response
@@ -261,9 +258,12 @@ async function sendMteRequest(
     });
   } catch (error) {
     if (error instanceof MteRelayError) {
-      deleteIdFromQueue({ serverId: originId, pairId });
+      deleteIdFromQueue({ origin, pairId });
       if (error.status === 566) {
-        setServerStatus(serverOrigin, "pending");
+        setRemoteStatus({
+          origin: remoteOrigin,
+          status: "pending",
+        });
         CLIENT_ID = null;
         expireCookie(CLIENT_ID_HEADER);
         if (requestOptions?.isLastAttempt) {
@@ -274,7 +274,7 @@ async function sendMteRequest(
           isLastAttempt: true,
         });
       }
-      pairWithOrigin(serverOrigin, 1);
+      pairWithOrigin(remoteOrigin, 1);
       if (!requestOptions?.isLastAttempt) {
         return await sendMteRequest(url, options, mteOptions, {
           isLastAttempt: true,
@@ -293,7 +293,7 @@ async function sendMteRequest(
  * Make a HEAD request to check for x-mte-id response header,
  * If it exists, we assume the origin is an mte translator.
  */
-async function requestServerId(origin: string) {
+async function validateRemoteIsMteRelay(origin: string) {
   const _headers: Record<string, string> = {};
   if (CLIENT_ID) {
     _headers[CLIENT_ID_HEADER] = CLIENT_ID;
@@ -313,16 +313,18 @@ async function requestServerId(origin: string) {
   if (!response.ok) {
     throw new Error("Origin is not an MTE Relay origin.");
   }
-  const serverId = response.headers.get(SERVER_ID_HEADER);
-  if (!serverId) {
-    throw new Error(`Response is missing header: ${SERVER_ID_HEADER}`);
-  }
-  CLIENT_ID = response.headers.get(CLIENT_ID_HEADER);
-  if (!CLIENT_ID) {
+  const clientId = response.headers.get(CLIENT_ID_HEADER);
+  if (!clientId) {
     throw new Error(`Response is missing header: ${CLIENT_ID_HEADER}`);
   }
+  CLIENT_ID = clientId;
+  const remoteRecord = await setRemoteStatus({
+    origin,
+    status: "pending",
+    clientId,
+  });
   setCookie(CLIENT_ID_HEADER, CLIENT_ID);
-  return serverId;
+  return remoteRecord;
 }
 
 /**
@@ -370,10 +372,6 @@ async function pairWithOrigin(origin: string, numberOfPairs?: number) {
   if (!response.ok) {
     throw new Error("Failed to pair with server MTE Translator.");
   }
-  const serverId = response.headers.get(SERVER_ID_HEADER);
-  if (!serverId) {
-    throw new Error(`Response is missing header: ${SERVER_ID_HEADER}`);
-  }
   CLIENT_ID = response.headers.get(CLIENT_ID_HEADER);
   if (!CLIENT_ID) {
     throw new Error(`Response is missing header: ${CLIENT_ID_HEADER}`);
@@ -405,10 +403,10 @@ async function pairWithOrigin(origin: string, numberOfPairs?: number) {
 
     // create encoder/decoder
     await instantiateEncoder({
+      origin: origin,
       entropy: encoderEntropy,
       nonce: pairResponse.decoderNonce,
       personalization: pairInit.encoderPersonalizationStr,
-      serverId: serverId,
       pairId: pairResponse.pairId,
     });
 
@@ -416,121 +414,10 @@ async function pairWithOrigin(origin: string, numberOfPairs?: number) {
       entropy: decoderEntropy,
       nonce: pairResponse.encoderNonce,
       personalization: pairInit.decoderPersonalizationStr,
-      serverId: serverId,
+      origin: origin,
       pairId: pairResponse.pairId,
     });
   }
-}
-
-/**
- * encode headers and body of request
- */
-async function encodeRequest(
-  request: Request,
-  mteOptions: MteRequestOptions,
-  serverId: string,
-  pairId: string
-) {
-  // encrypt the route: /path/to/thing?query=string&query2=string2
-  const requestUrl = new URL(request.url);
-  const route = requestUrl.pathname.slice(1) + requestUrl.search;
-  const encryptedRoute = (await mkeEncode(route, {
-    id: `encoder.${serverId}.${pairId}`,
-    output: "B64",
-    type: mteOptions.encodeType,
-  })) as string;
-  const uriEncoded = encodeURIComponent(encryptedRoute);
-  const encryptedUrl = requestUrl.origin + "/" + uriEncoded;
-  // if longer than 2048 throw error - should this be an MTE Relay Error?
-  if (encryptedUrl.length > 2048) {
-    throw new Error(
-      "The encrypted URL is longer than 2048 characters. Please use a shorter URL."
-    );
-  }
-
-  // create an object of headers to be JSON stringified and encoded
-  const headersToEncode: Record<string, string> = {};
-
-  // always encode content-type
-  const contentType = request.headers.get("content-type");
-  if (contentType) {
-    headersToEncode["content-type"] = contentType;
-  }
-
-  // if true, copy all additional headers to be encoded
-  if (mteOptions.encodeHeaders === true) {
-    request.headers.forEach((value, name) => {
-      if (name === "content-type") {
-        return;
-      }
-      headersToEncode[name] = value;
-    });
-  }
-
-  // if array, copy just those headers to be encoded
-  if (Array.isArray(mteOptions.encodeHeaders)) {
-    if (mteOptions.encodeHeaders.some((i) => typeof i !== "string")) {
-      throw Error(
-        `Expected an array of strings for mteOptions.encodeHeaders, but received ${mteOptions.encodeHeaders}.`
-      );
-    }
-    mteOptions.encodeHeaders.forEach((headerName) => {
-      if (headerName === "content-type") {
-        return;
-      }
-      const headerValue = request.headers.get(headerName);
-      if (headerValue) {
-        headersToEncode[headerName] = headerValue;
-      }
-    });
-  }
-
-  const _headers = new Headers(request.headers);
-
-  if (Object.keys(headersToEncode).length > 0) {
-    const headersJSON = JSON.stringify(headersToEncode);
-    const encodedHeaders = (await mkeEncode(headersJSON, {
-      id: `encoder.${serverId}.${pairId}`,
-      output: "B64",
-      type: mteOptions.encodeType,
-    })) as string;
-    _headers.set(MTE_ENCODED_HEADERS_HEADER, encodedHeaders);
-  }
-
-  // append mte relay client and session IDs
-  _headers.set(CLIENT_ID_HEADER, CLIENT_ID!);
-  _headers.set(PAIR_ID_HEADER, pairId);
-  _headers.set(ENCODER_TYPE_HEADER, mteOptions.encodeType);
-
-  // encode body
-  let encryptedBody: ReadableStream<Uint8Array> | Uint8Array | null = null;
-  if (request.body !== null) {
-    const ab = await request.arrayBuffer();
-    const u8 = new Uint8Array(ab);
-    const encodedBody = await mkeEncode(u8, {
-      id: `encoder.${serverId}.${pairId}`,
-      output: "Uint8Array",
-      type: mteOptions.encodeType,
-    });
-    encryptedBody = encodedBody as Uint8Array;
-    _headers.set("content-type", "application/octet-stream");
-  }
-
-  const _request = new Request(encryptedUrl, {
-    // list all properties of request object
-    body: encryptedBody,
-    cache: "no-cache",
-    credentials: request.credentials,
-    headers: _headers,
-    method: request.method,
-    mode: request.mode,
-    redirect: request.redirect,
-    referrer: request.referrer,
-    referrerPolicy: request.referrerPolicy,
-    signal: request.signal,
-  });
-
-  return _request;
 }
 
 function sleep(ms: number): Promise<void> {
