@@ -9,6 +9,7 @@ const MTE_ERRORS = {
   "Invalid Client ID header.": 566,
   "Failed to save decoder stateId.": 567,
   "Failed to save encoder stateId.": 567,
+  "Missing required header": 568,
 } as const;
 
 const statusCodes: Set<number> = new Set(Object.values(MTE_ERRORS));

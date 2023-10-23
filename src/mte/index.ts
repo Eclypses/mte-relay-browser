@@ -1,7 +1,7 @@
 // export public available
 
 export { getNextPairIdFromQueue, deleteIdFromQueue } from "./cache";
-export { encodeRequest } from "./encode-request";
+export { encodeRequest } from "./mte-fetch/request";
 export {
   instantiateMteWasm,
   instantiateEncoder,

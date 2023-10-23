@@ -81,7 +81,6 @@ export async function instantiateEncoder(options: {
   nonce: string;
   personalization: string;
 }) {
-  debugger;
   const encoder = getEncoderFromPool("MTE", mteWasm);
   encoder.setEntropyArr(options.entropy);
   encoder.setNonce(options.nonce);
@@ -145,7 +144,6 @@ export async function encode(options: {
     output: "B64" | "Uint8Array";
   }[];
 }) {
-  debugger;
   const encoder = getEncoderFromPool(options.type, mteWasm);
   const currentState = await getEncDecState(options.id);
   if (!currentState) {

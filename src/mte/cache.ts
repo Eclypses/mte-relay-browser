@@ -8,6 +8,7 @@ export type RemoteRecord = {
 
 // A key:value object that will act as our cache
 const cache: Record<string, RemoteRecord | string> = {};
+const remotesContacted: string[] = [];
 
 // setter function - can be overridden with adapter
 let setCacheItem = async function (key: string, value: RemoteRecord | string) {
@@ -35,7 +36,17 @@ export async function getRemoteRecordByOrigin(
 ): Promise<RemoteRecord> {
   let record = (await getCacheItem(origin)) as RemoteRecord;
   if (!record) {
-    record = createNewRemoteRecord(origin);
+    if (!remotesContacted.includes(origin)) {
+      remotesContacted.push(origin);
+      record = createNewRemoteRecord(origin);
+    } else {
+      record = {
+        origin: origin,
+        clientId: null,
+        status: "pending",
+        pairIdQueue: [],
+      };
+    }
   }
   return record;
 }

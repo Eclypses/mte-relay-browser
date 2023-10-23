@@ -198,7 +198,7 @@ async function sendMteRequest(
     }
     setCookie(CLIENT_ID_HEADER, CLIENT_ID);
 
-    // get session ID from this request/response
+    // get pair ID from this request/response
     const responsePairId = response.headers.get(PAIR_ID_HEADER);
     if (!responsePairId) {
       throw new Error(`Response is missing header: ${PAIR_ID_HEADER}`);
