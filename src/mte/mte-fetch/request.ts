@@ -7,10 +7,7 @@ import {
   MTE_ENCODED_HEADERS_HEADER,
   PAIR_ID_HEADER,
 } from "../index";
-import {
-  formatMteRelayHeader,
-  parseMteRelayHeader,
-} from "./format-mte-info-header";
+import { formatMteRelayHeader, parseMteRelayHeader } from "./format-mte-info-header";
 
 type EncDecType = "MTE" | "MKE";
 
@@ -90,18 +87,18 @@ export async function encodeRequest(
 
   // create new request headers
   const newRequestHeaders = new Headers(request.headers);
-  newRequestHeaders.set(
-    `x-mte-relay`,
-    formatMteRelayHeader({
-      type: options.type,
-      urlIsEncoded: encodeUrl,
-      headersAreEncoded: !!encodeHeaders,
-      bodyIsEncoded: !!encodeBody,
-      bodyEncodeType: "complete",
-      clientId: options.clientId,
-      pairId: options.pairId,
-    })
-  );
+  // newRequestHeaders.set(
+  //   `x-mte-relay`,
+  //   formatMteRelayHeader({
+  //     type: options.type,
+  //     urlIsEncoded: encodeUrl,
+  //     headersAreEncoded: !!encodeHeaders,
+  //     bodyIsEncoded: !!encodeBody,
+  //     bodyEncodeType: "complete",
+  //     clientId: options.clientId,
+  //     pairId: options.pairId,
+  //   })
+  // );
   newRequestHeaders.set(CLIENT_ID_HEADER, options.clientId!);
   newRequestHeaders.set(PAIR_ID_HEADER, options.pairId);
   newRequestHeaders.set("content-type", "application/octet-stream");
@@ -205,10 +202,7 @@ export async function decodeRequest(
 
   // create new body
   let newRequestBody;
-  if (
-    mteRelayHeader.bodyIsEncoded &&
-    mteRelayHeader.bodyEncodeType === "complete"
-  ) {
+  if (mteRelayHeader.bodyIsEncoded && mteRelayHeader.bodyEncodeType === "complete") {
     newRequestBody = result[0] as Uint8Array;
   }
   const newRequest = new Request(newRequestUrl, {
