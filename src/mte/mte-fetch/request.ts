@@ -87,18 +87,18 @@ export async function encodeRequest(
 
   // create new request headers
   const newRequestHeaders = new Headers(request.headers);
-  // newRequestHeaders.set(
-  //   `x-mte-relay`,
-  //   formatMteRelayHeader({
-  //     type: options.type,
-  //     urlIsEncoded: encodeUrl,
-  //     headersAreEncoded: !!encodeHeaders,
-  //     bodyIsEncoded: !!encodeBody,
-  //     bodyEncodeType: "complete",
-  //     clientId: options.clientId,
-  //     pairId: options.pairId,
-  //   })
-  // );
+  newRequestHeaders.set(
+    `x-mte-relay`,
+    formatMteRelayHeader({
+      type: options.type,
+      urlIsEncoded: encodeUrl,
+      headersAreEncoded: !!encodeHeaders,
+      bodyIsEncoded: !!encodeBody,
+      bodyEncodeType: "complete",
+      clientId: options.clientId,
+      pairId: options.pairId,
+    })
+  );
   newRequestHeaders.set(CLIENT_ID_HEADER, options.clientId!);
   newRequestHeaders.set(PAIR_ID_HEADER, options.pairId);
   newRequestHeaders.set("content-type", "application/octet-stream");
