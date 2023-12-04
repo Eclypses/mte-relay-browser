@@ -1,9 +1,6 @@
 import { MteRelayError } from "../errors";
 import { MTE_ENCODED_HEADERS_HEADER, decode, encode } from "../index";
-import {
-  formatMteRelayHeader,
-  parseMteRelayHeader,
-} from "./format-mte-info-header";
+import { formatMteRelayHeader, parseMteRelayHeader } from "./format-mte-info-header";
 
 export async function encodeResponse(
   response: Response,
@@ -98,7 +95,7 @@ export async function encodeResponse(
   return newResponse;
 }
 
-export async function decodeResponse<T>(
+export async function decodeResponse(
   response: Response,
   options: {
     clientId: string;
@@ -155,10 +152,7 @@ export async function decodeResponse<T>(
 
   // create new response body
   let newBody;
-  if (
-    mteRelayHeader.bodyIsEncoded &&
-    mteRelayHeader.bodyEncodeType === "complete"
-  ) {
+  if (mteRelayHeader.bodyIsEncoded && mteRelayHeader.bodyEncodeType === "complete") {
     newBody = result[1] as Uint8Array;
   }
 
