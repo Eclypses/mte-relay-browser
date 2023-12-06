@@ -110,7 +110,6 @@ async function sendMteRequest(
     if (serverRecord.status === "validate-now" || requestOptions?.revalidateServer) {
       try {
         serverRecord = await validateRemoteIsMteRelay(serverRecord.origin);
-        debugger;
       } catch (error: any) {
         if (MteRelayError.isMteErrorStatus(error.status)) {
           throw new MteRelayError(MteRelayError.getStatusErrorMessages(error.status)!);
@@ -287,7 +286,6 @@ async function sendMteRequest(
  */
 async function validateRemoteIsMteRelay(origin: string) {
   const _headers: Record<string, string> = {};
-  console.log(`CLIENT ID: ${CLIENT_ID}`);
   if (CLIENT_ID) {
     _headers[MTE_RELAY_HEADER] = CLIENT_ID;
   }
@@ -318,7 +316,6 @@ async function validateRemoteIsMteRelay(origin: string) {
     status: "pending",
     clientId: parsedRelayHeaders.clientId,
   });
-  debugger;
   setCookie(CLIENT_ID_COOKIE, CLIENT_ID);
   return remoteRecord;
 }
