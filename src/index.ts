@@ -6,10 +6,9 @@ import {
   getNextPairIdFromQueue,
   deleteIdFromQueue,
   encodeRequest,
-  CLIENT_ID_HEADER,
   MTE_ENCODED_HEADERS_HEADER,
-  PAIR_ID_HEADER,
-  ENCODER_TYPE_HEADER,
+  MTE_RELAY_HEADER,
+  parseMteRelayHeader,
 } from "./mte";
 import { setRemoteStatus, getRemoteRecordByOrigin } from "./mte/cache";
 import { generateRandomId } from "./utils/generate-id";
@@ -20,6 +19,7 @@ import { setCookie, getCookieValue, expireCookie } from "./utils/cookies";
 let CLIENT_ID: string | null;
 let NUMBER_OF_PAIRS = 5;
 let DEFAULT_ENCODE_TYPE: "MTE" | "MKE" = "MKE";
+const CLIENT_ID_COOKIE = "hPqQJLzMbpKGN7OE";
 
 /**
  * Instantiates the MTE WebAssembly module with the given options.
@@ -50,7 +50,7 @@ export async function instantiateMteWasm(options: {
     mkePoolSize: options.mkePoolSize,
     mtePoolSize: options.mtePoolSize,
   });
-  const clientId = getCookieValue(CLIENT_ID_HEADER);
+  const clientId = getCookieValue(CLIENT_ID_COOKIE);
   if (clientId) {
     CLIENT_ID = clientId;
   }
@@ -107,17 +107,13 @@ async function sendMteRequest(
     };
 
     // validate remote is MTE Relay Server and pair with it
-    if (
-      serverRecord.status === "validate-now" ||
-      requestOptions?.revalidateServer
-    ) {
+    if (serverRecord.status === "validate-now" || requestOptions?.revalidateServer) {
       try {
         serverRecord = await validateRemoteIsMteRelay(serverRecord.origin);
+        debugger;
       } catch (error: any) {
         if (MteRelayError.isMteErrorStatus(error.status)) {
-          throw new MteRelayError(
-            MteRelayError.getStatusErrorMessages(error.status)!
-          );
+          throw new MteRelayError(MteRelayError.getStatusErrorMessages(error.status)!);
         } else {
           setRemoteStatus({
             origin: serverRecord.origin,
@@ -179,8 +175,6 @@ async function sendMteRequest(
      * Send the request
      */
     let response = await fetch(encodedRequest);
-
-    // handle a bad response
     if (!response.ok) {
       if (MteRelayError.isMteErrorStatus(response.status)) {
         const msg = MteRelayError.getStatusErrorMessages(response.status);
@@ -191,27 +185,29 @@ async function sendMteRequest(
       return response;
     }
 
-    // save client ID
-    CLIENT_ID = response.headers.get(CLIENT_ID_HEADER);
-    if (!CLIENT_ID) {
-      throw new Error(`Response is missing header: ${CLIENT_ID_HEADER}`);
+    const mteRelayHeader = response.headers.get(MTE_RELAY_HEADER);
+    if (!mteRelayHeader) {
+      throw new Error("Origin is not an MTE Relay server.");
     }
-    setCookie(CLIENT_ID_HEADER, CLIENT_ID);
+    const parsedRelayHeaders = parseMteRelayHeader(mteRelayHeader);
+
+    // save client ID
+    if (!parsedRelayHeaders.clientId) {
+      throw new Error(`Response is missing clientId header`);
+    }
+    setCookie(CLIENT_ID_COOKIE, parsedRelayHeaders.clientId);
 
     // get pair ID from this request/response
-    const responsePairId = response.headers.get(PAIR_ID_HEADER);
-    if (!responsePairId) {
-      throw new Error(`Response is missing header: ${PAIR_ID_HEADER}`);
+    if (!parsedRelayHeaders.pairId) {
+      throw new Error(`Response is missing pairId header. `);
     }
 
     // decode encoded headers
     const responseHeaders = new Headers(response.headers);
-    const responseEncodedHeaders = responseHeaders.get(
-      MTE_ENCODED_HEADERS_HEADER
-    );
+    const responseEncodedHeaders = responseHeaders.get(MTE_ENCODED_HEADERS_HEADER);
     if (responseEncodedHeaders) {
       const responseDecodedHeadersJson = await decode({
-        id: `decoder.${serverRecord.origin}.${responsePairId}`,
+        id: `decoder.${serverRecord.origin}.${parsedRelayHeaders.pairId}`,
         items: [
           {
             data: responseEncodedHeaders,
@@ -220,17 +216,13 @@ async function sendMteRequest(
         ],
         type: _mteOptions.encodeType,
       });
-      const responseDecodedHeaders = JSON.parse(
-        responseDecodedHeadersJson[0] as string
-      );
+      const responseDecodedHeaders = JSON.parse(responseDecodedHeadersJson[0] as string);
       for (const headerName in responseDecodedHeaders) {
         responseHeaders.set(headerName, responseDecodedHeaders[headerName]);
       }
     }
     responseHeaders.delete(MTE_ENCODED_HEADERS_HEADER);
-    responseHeaders.delete(CLIENT_ID_HEADER);
-    responseHeaders.delete(PAIR_ID_HEADER);
-    responseHeaders.delete(ENCODER_TYPE_HEADER);
+    responseHeaders.delete(MTE_RELAY_HEADER);
 
     // decode response body, if present
     let decryptedBody: Uint8Array | null = null;
@@ -238,7 +230,7 @@ async function sendMteRequest(
       const buffer = await response.arrayBuffer();
       const u8 = new Uint8Array(buffer);
       const decoded = await decode({
-        id: `decoder.${serverRecord.origin}.${responsePairId}`,
+        id: `decoder.${serverRecord.origin}.${parsedRelayHeaders.pairId}`,
         type: _mteOptions.encodeType,
         items: [
           {
@@ -265,7 +257,7 @@ async function sendMteRequest(
           status: "pending",
         });
         CLIENT_ID = null;
-        expireCookie(CLIENT_ID_HEADER);
+        expireCookie(CLIENT_ID_COOKIE);
         if (requestOptions?.isLastAttempt) {
           throw new Error("Origin is not an MTE Relay server.");
         }
@@ -283,7 +275,7 @@ async function sendMteRequest(
     }
     let message = "An unknown error occurred.";
     if (error instanceof Error) {
-      message = error.message;
+      throw error;
     }
     throw Error(message);
   }
@@ -295,8 +287,9 @@ async function sendMteRequest(
  */
 async function validateRemoteIsMteRelay(origin: string) {
   const _headers: Record<string, string> = {};
+  console.log(`CLIENT ID: ${CLIENT_ID}`);
   if (CLIENT_ID) {
-    _headers[CLIENT_ID_HEADER] = CLIENT_ID;
+    _headers[MTE_RELAY_HEADER] = CLIENT_ID;
   }
   const response = await fetch(origin + "/api/mte-relay", {
     method: "HEAD",
@@ -305,25 +298,28 @@ async function validateRemoteIsMteRelay(origin: string) {
   });
 
   if (MteRelayError.isMteErrorStatus(response.status)) {
-    throw new MteRelayError(
-      MteRelayError.getStatusErrorMessages(response.status)!
-    );
+    throw new MteRelayError(MteRelayError.getStatusErrorMessages(response.status)!);
   }
 
   if (!response.ok) {
     throw new Error("Origin is not an MTE Relay origin.");
   }
-  const clientId = response.headers.get(CLIENT_ID_HEADER);
-  if (!clientId) {
-    throw new Error(`Response is missing header: ${CLIENT_ID_HEADER}`);
+  const mteRelayHeaders = response.headers.get(MTE_RELAY_HEADER);
+  if (!mteRelayHeaders) {
+    throw new Error("Origin is not an MTE Relay origin.");
   }
-  CLIENT_ID = clientId;
+  const parsedRelayHeaders = parseMteRelayHeader(mteRelayHeaders);
+  if (!parsedRelayHeaders.clientId) {
+    throw new Error(`Response is missing clientId from header.`);
+  }
+  CLIENT_ID = parsedRelayHeaders.clientId;
   const remoteRecord = await setRemoteStatus({
     origin,
     status: "pending",
-    clientId,
+    clientId: parsedRelayHeaders.clientId,
   });
-  setCookie(CLIENT_ID_HEADER, CLIENT_ID);
+  debugger;
+  setCookie(CLIENT_ID_COOKIE, CLIENT_ID);
   return remoteRecord;
 }
 
@@ -334,7 +330,6 @@ async function pairWithOrigin(origin: string, numberOfPairs?: number) {
   if (!CLIENT_ID) {
     throw new Error("Client ID is not set.");
   }
-
   const initValues = [];
   const ecdh = [];
 
@@ -361,7 +356,7 @@ async function pairWithOrigin(origin: string, numberOfPairs?: number) {
   const _headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  _headers[CLIENT_ID_HEADER] = CLIENT_ID;
+  _headers[MTE_RELAY_HEADER] = CLIENT_ID;
 
   const response = await fetch(`${origin}/api/mte-pair`, {
     method: "POST",
@@ -372,11 +367,12 @@ async function pairWithOrigin(origin: string, numberOfPairs?: number) {
   if (!response.ok) {
     throw new Error("Failed to pair with server MTE Translator.");
   }
-  CLIENT_ID = response.headers.get(CLIENT_ID_HEADER);
-  if (!CLIENT_ID) {
-    throw new Error(`Response is missing header: ${CLIENT_ID_HEADER}`);
+  const mteRelayHeaders = response.headers.get(MTE_RELAY_HEADER);
+  if (!mteRelayHeaders) {
+    throw new Error(`Response is missing header: ${MTE_RELAY_HEADER}`);
   }
-  setCookie(CLIENT_ID_HEADER, CLIENT_ID);
+  const parsedRelayHeaders = parseMteRelayHeader(mteRelayHeaders);
+  setCookie(CLIENT_ID_COOKIE, parsedRelayHeaders.clientId);
 
   // convert response to json
   const pairResponseData: {

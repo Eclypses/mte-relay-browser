@@ -11,9 +11,5 @@ export {
   encodeChunks,
   decodeChunks,
 } from "./mte-helpers";
-export {
-  CLIENT_ID_HEADER,
-  ENCODER_TYPE_HEADER,
-  MTE_ENCODED_HEADERS_HEADER,
-  PAIR_ID_HEADER,
-} from "./constants";
+export { MTE_ENCODED_HEADERS_HEADER, MTE_RELAY_HEADER } from "./constants";
+export { formatMteRelayHeader, parseMteRelayHeader } from "./mte-fetch/format-mte-info-header";

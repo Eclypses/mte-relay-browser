@@ -8,28 +8,25 @@ export function formatMteRelayHeader(options: {
   pairId: string;
 }) {
   let args = [];
-  args.push(options.type);
-  args.push(options.urlIsEncoded);
-  args.push(options.headersAreEncoded);
-  if (options.bodyIsEncoded) {
-    args.push(options.bodyEncodeType);
-  } else {
-    args.push(false);
-  }
   args.push(options.clientId);
   args.push(options.pairId);
+  args.push(options.type === "MTE" ? 0 : 1);
+  args.push(options.urlIsEncoded ? 1 : 0);
+  args.push(options.headersAreEncoded ? 1 : 0);
+  args.push(options.bodyIsEncoded ? 1 : 0);
+  args.push(options.bodyEncodeType === "complete" ? 0 : 1);
   return args.join(",");
 }
 
 export function parseMteRelayHeader(header: string) {
   const args = header.split(",");
-  const type = args[0] as "MTE" | "MKE";
-  const urlIsEncoded = args[1] === "true";
-  const headersAreEncoded = args[2] === "true";
-  const bodyIsEncoded = args[3] === "complete" || args[3] === "stream";
-  const bodyEncodeType = args[3] as "complete" | "stream" | false;
-  const clientId = args[4];
-  const pairId = args[5];
+  const clientId = args[0];
+  const pairId = args[1];
+  const type = args[2] === "0" ? "MTE" : "MKE";
+  const urlIsEncoded = args[3] === "1";
+  const headersAreEncoded = args[4] === "1";
+  const bodyIsEncoded = args[5] === "1";
+  const bodyEncodeType = args[6] === "0" ? "complete" : "stream";
   return {
     type,
     urlIsEncoded,

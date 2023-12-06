@@ -1,12 +1,5 @@
 import { MteRelayError } from "../errors";
-import {
-  CLIENT_ID_HEADER,
-  decode,
-  encode,
-  ENCODER_TYPE_HEADER,
-  MTE_ENCODED_HEADERS_HEADER,
-  PAIR_ID_HEADER,
-} from "../index";
+import { MTE_RELAY_HEADER, decode, encode, MTE_ENCODED_HEADERS_HEADER } from "../index";
 import { formatMteRelayHeader, parseMteRelayHeader } from "./format-mte-info-header";
 
 type EncDecType = "MTE" | "MKE";
@@ -88,7 +81,7 @@ export async function encodeRequest(
   // create new request headers
   const newRequestHeaders = new Headers(request.headers);
   newRequestHeaders.set(
-    `x-mte-relay`,
+    MTE_RELAY_HEADER,
     formatMteRelayHeader({
       type: options.type,
       urlIsEncoded: encodeUrl,
@@ -99,10 +92,7 @@ export async function encodeRequest(
       pairId: options.pairId,
     })
   );
-  newRequestHeaders.set(CLIENT_ID_HEADER, options.clientId!);
-  newRequestHeaders.set(PAIR_ID_HEADER, options.pairId);
   newRequestHeaders.set("content-type", "application/octet-stream");
-  newRequestHeaders.set(ENCODER_TYPE_HEADER, options.type);
   if (encodeHeaders) {
     newRequestHeaders.set(MTE_ENCODED_HEADERS_HEADER, result[0] as string);
     result.shift();
@@ -189,9 +179,7 @@ export async function decodeRequest(
 
   // create new headers
   const newRequestHeaders = new Headers(request.headers);
-  newRequestHeaders.delete(CLIENT_ID_HEADER);
-  newRequestHeaders.delete(PAIR_ID_HEADER);
-  newRequestHeaders.delete(ENCODER_TYPE_HEADER);
+  newRequestHeaders.delete(MTE_RELAY_HEADER);
   if (mteRelayHeader.headersAreEncoded) {
     const headers: Record<string, string> = JSON.parse(result[0] as string);
     for (const entry of Object.entries(headers)) {
@@ -205,6 +193,9 @@ export async function decodeRequest(
   if (mteRelayHeader.bodyIsEncoded && mteRelayHeader.bodyEncodeType === "complete") {
     newRequestBody = result[0] as Uint8Array;
   }
+
+  // todo: handle stream body
+
   const newRequest = new Request(newRequestUrl, {
     method: request.method,
     headers: newRequestHeaders,
