@@ -121,12 +121,12 @@ async function sendMteRequest(
           throw new Error("Origin is not an MTE Relay server.");
         }
       }
-      await pairWithOrigin(serverRecord.origin).catch(() => {
+      await pairWithOrigin(serverRecord.origin).catch((error) => {
         setRemoteStatus({
           origin: serverRecord.origin,
           status: "invalid",
         });
-        throw new Error("Origin is not an MTE Relay server.");
+        throw error;
       });
       serverRecord = await setRemoteStatus({
         origin: serverRecord.origin,
@@ -181,7 +181,6 @@ async function sendMteRequest(
           throw new MteRelayError(msg);
         }
       }
-      return response;
     }
 
     const mteRelayHeader = response.headers.get(MTE_RELAY_HEADER);
