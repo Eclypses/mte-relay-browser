@@ -267,7 +267,6 @@ async function sendMteRequest(
     });
   } catch (error) {
     if (error instanceof MteRelayError) {
-      deleteIdFromQueue({ serverId: originId, pairId });
       if (error.status === 566) {
         setServerStatus(serverOrigin, "pending");
         CLIENT_ID = null;
@@ -280,6 +279,7 @@ async function sendMteRequest(
           isLastAttempt: true,
         });
       }
+      deleteIdFromQueue({ serverId: originId, pairId });
       pairWithOrigin(serverOrigin, 1);
       if (!requestOptions?.isLastAttempt) {
         return await sendMteRequest(url, options, mteOptions, {
