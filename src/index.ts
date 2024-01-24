@@ -235,18 +235,22 @@ async function sendMteRequest(
     let decryptedBody: Uint8Array | null = null;
     if (response.body) {
       const buffer = await response.arrayBuffer();
-      const u8 = new Uint8Array(buffer);
-      const decoded = await decode({
-        id: `decoder.${serverRecord.origin}.${parsedRelayHeaders.pairId}`,
-        type: _mteOptions.encodeType,
-        items: [
-          {
-            data: u8,
-            output: "Uint8Array",
-          },
-        ],
-      });
-      decryptedBody = decoded[0] as Uint8Array;
+      if (buffer.byteLength < 1) {
+        decryptedBody = null;
+      } else {
+        const u8 = new Uint8Array(buffer);
+        const decoded = await decode({
+          id: `decoder.${serverRecord.origin}.${parsedRelayHeaders.pairId}`,
+          type: _mteOptions.encodeType,
+          items: [
+            {
+              data: u8,
+              output: "Uint8Array",
+            },
+          ],
+        });
+        decryptedBody = decoded[0] as Uint8Array;
+      }
     }
 
     // return decoded response
