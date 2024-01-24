@@ -107,12 +107,17 @@ async function sendMteRequest(
     };
 
     // validate remote is MTE Relay Server and pair with it
-    if (serverRecord.status === "validate-now" || requestOptions?.revalidateServer) {
+    if (
+      serverRecord.status === "validate-now" ||
+      requestOptions?.revalidateServer
+    ) {
       try {
         serverRecord = await validateRemoteIsMteRelay(serverRecord.origin);
       } catch (error: any) {
         if (MteRelayError.isMteErrorStatus(error.status)) {
-          throw new MteRelayError(MteRelayError.getStatusErrorMessages(error.status)!);
+          throw new MteRelayError(
+            MteRelayError.getStatusErrorMessages(error.status)!
+          );
         } else {
           setRemoteStatus({
             origin: serverRecord.origin,
@@ -202,7 +207,9 @@ async function sendMteRequest(
 
     // decode encoded headers
     const responseHeaders = new Headers(response.headers);
-    const responseEncodedHeaders = responseHeaders.get(MTE_ENCODED_HEADERS_HEADER);
+    const responseEncodedHeaders = responseHeaders.get(
+      MTE_ENCODED_HEADERS_HEADER
+    );
     if (responseEncodedHeaders) {
       const responseDecodedHeadersJson = await decode({
         id: `decoder.${serverRecord.origin}.${parsedRelayHeaders.pairId}`,
@@ -214,7 +221,9 @@ async function sendMteRequest(
         ],
         type: _mteOptions.encodeType,
       });
-      const responseDecodedHeaders = JSON.parse(responseDecodedHeadersJson[0] as string);
+      const responseDecodedHeaders = JSON.parse(
+        responseDecodedHeadersJson[0] as string
+      );
       for (const headerName in responseDecodedHeaders) {
         responseHeaders.set(headerName, responseDecodedHeaders[headerName]);
       }
@@ -248,7 +257,6 @@ async function sendMteRequest(
     });
   } catch (error) {
     if (error instanceof MteRelayError) {
-      deleteIdFromQueue({ origin, pairId });
       if (error.status === 566) {
         setRemoteStatus({
           origin: remoteOrigin,
@@ -264,6 +272,7 @@ async function sendMteRequest(
           isLastAttempt: true,
         });
       }
+      deleteIdFromQueue({ origin, pairId });
       pairWithOrigin(remoteOrigin, 1);
       if (!requestOptions?.isLastAttempt) {
         return await sendMteRequest(url, options, mteOptions, {
@@ -295,7 +304,9 @@ async function validateRemoteIsMteRelay(origin: string) {
   });
 
   if (MteRelayError.isMteErrorStatus(response.status)) {
-    throw new MteRelayError(MteRelayError.getStatusErrorMessages(response.status)!);
+    throw new MteRelayError(
+      MteRelayError.getStatusErrorMessages(response.status)!
+    );
   }
 
   if (!response.ok) {
