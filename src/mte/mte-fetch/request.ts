@@ -29,7 +29,7 @@ export async function encodeRequest(
     output: "B64" | "Uint8Array";
   }[] = [];
 
-  // get url to encode
+  // get route to encode
   const url = new URL(request.url);
   const encodeUrl = options.encodeUrl ?? true;
   if (encodeUrl) {
@@ -81,6 +81,7 @@ export async function encodeRequest(
     items: itemsToEncode,
     type: options.type,
   });
+
   // create new request url
   let newRequestUrl = request.url;
   if (encodeUrl) {
@@ -164,14 +165,14 @@ export async function decodeRequest(
     itemsToDecode.push({ data: header, output: "str" });
   }
 
-  // get body to encode
+  // get body to decode
   const decodeBody = request.body && mteRelayHeader.bodyIsEncoded;
   if (decodeBody) {
     const body = new Uint8Array(await request.arrayBuffer());
     itemsToDecode.push({ data: body, output: "Uint8Array" });
   }
 
-  // encode items
+  // decode items
   const result = await decode({
     id: `decoder.${options.originId}.${options.pairId}`,
     items: itemsToDecode,
