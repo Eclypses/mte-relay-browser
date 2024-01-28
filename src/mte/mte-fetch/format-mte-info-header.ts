@@ -31,5 +31,5 @@ export function parseMteRelayHeader(header: string) {
     bodyIsEncoded,
     clientId,
     pairId,
-  };
+  } as const;
 }

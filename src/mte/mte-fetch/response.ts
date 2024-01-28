@@ -100,20 +100,9 @@ export async function encodeResponse(
 export async function decodeResponse(
   response: Response,
   options: {
-    clientId: string;
-    originId: string;
-    pairId: string;
-    type: "MTE" | "MKE";
-    encodeUrl?: boolean;
-    encodeHeaders?: boolean | string[];
-    encodeBody?: boolean;
+    decoderId: string;
   }
 ) {
-  const itemsToDecode: {
-    data: string | Uint8Array;
-    output: "str" | "Uint8Array";
-  }[] = [];
-
   // read header to find out what to decode
   const x = response.headers.get(`x-mte-relay`);
   if (!x) {
@@ -121,31 +110,41 @@ export async function decodeResponse(
       "missing-header": `x-mte-relay`,
     });
   }
-  const mteRelayHeader = parseMteRelayHeader(x);
+  const relayOptions = parseMteRelayHeader(x);
+
+  // store items that should be decoded
+  const itemsToDecode: {
+    data: string | Uint8Array;
+    output: "str" | "Uint8Array";
+  }[] = [];
 
   // get headers to decode
-  const header = response.headers.get(MTE_ENCODED_HEADERS_HEADER);
-  if (header) {
-    itemsToDecode.push({ data: header, output: "str" });
+  if (relayOptions.headersAreEncoded) {
+    const header = response.headers.get(MTE_ENCODED_HEADERS_HEADER);
+    if (header) {
+      itemsToDecode.push({ data: header, output: "str" });
+    }
   }
 
   // get body to decode
-  const decodeBody = mteRelayHeader.bodyIsEncoded && response.body;
-  if (decodeBody) {
-    const u8 = new Uint8Array(await response.arrayBuffer());
-    itemsToDecode.push({ data: u8, output: "Uint8Array" });
+  if (relayOptions.bodyIsEncoded) {
+    if (response.body) {
+      const u8 = new Uint8Array(await response.arrayBuffer());
+      itemsToDecode.push({ data: u8, output: "Uint8Array" });
+    }
   }
 
+  // decode items
   const result = await decode({
-    id: `decoder.${options.originId}.${options.pairId}`,
+    id: options.decoderId,
     items: itemsToDecode,
-    type: options.type,
+    type: relayOptions.type,
   });
 
   // create new response headers
   const newHeaders = new Headers(response.headers);
-  newHeaders.delete(MTE_ENCODED_HEADERS_HEADER);
-  if (header) {
+  if (relayOptions.headersAreEncoded) {
+    newHeaders.delete(MTE_ENCODED_HEADERS_HEADER);
     const headers: Record<string, string> = JSON.parse(result[0] as string);
     for (const entry of Object.entries(headers)) {
       newHeaders.set(entry[0], entry[1]);
@@ -153,8 +152,8 @@ export async function decodeResponse(
   }
 
   // create new response body
-  let newBody;
-  if (mteRelayHeader.bodyIsEncoded) {
+  let newBody: BodyInit | undefined = response.body || undefined;
+  if (relayOptions.bodyIsEncoded) {
     newBody = result[1] as Uint8Array;
   }
 
