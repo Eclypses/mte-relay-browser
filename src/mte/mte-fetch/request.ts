@@ -1,14 +1,5 @@
-import { MteRelayError } from "../errors";
-import {
-  MTE_RELAY_HEADER,
-  decode,
-  encode,
-  MTE_ENCODED_HEADERS_HEADER,
-} from "../index";
-import {
-  formatMteRelayHeader,
-  parseMteRelayHeader,
-} from "./format-mte-info-header";
+import { MTE_RELAY_HEADER, encode, MTE_ENCODED_HEADERS_HEADER } from "../index";
+import { formatMteRelayHeader } from "./format-mte-info-header";
 
 type EncDecType = "MTE" | "MKE";
 
@@ -115,97 +106,6 @@ export async function encodeRequest(
   }
 
   // form new request
-  const newRequest = new Request(newRequestUrl, {
-    method: request.method,
-    headers: newRequestHeaders,
-    body: newRequestBody,
-    cache: "no-cache",
-    credentials: request.credentials,
-  });
-
-  return newRequest;
-}
-
-export async function decodeRequest(
-  request: Request,
-  options: {
-    clientId: string;
-    originId: string;
-    pairId: string;
-    type: EncDecType;
-    encodeUrl?: boolean;
-    encodeHeaders?: boolean | string[];
-    encodeBody?: boolean;
-  }
-) {
-  const itemsToDecode: {
-    data: string | Uint8Array;
-    output: "str" | "Uint8Array";
-  }[] = [];
-
-  // read header to find out what to decode
-  const x = request.headers.get(`x-mte-relay`);
-  if (!x) {
-    throw new MteRelayError("Missing required header", {
-      "missing-header": `x-mte-relay`,
-    });
-  }
-  const mteRelayHeader = parseMteRelayHeader(x);
-
-  // get url to decode
-  const url = new URL(request.url);
-  if (mteRelayHeader.urlIsEncoded) {
-    const route = url.pathname.slice(1);
-    itemsToDecode.push({ data: route, output: "str" });
-  }
-
-  // get headers to decode
-  const header = request.headers.get(MTE_ENCODED_HEADERS_HEADER);
-  if (header) {
-    itemsToDecode.push({ data: header, output: "str" });
-  }
-
-  // get body to decode
-  const decodeBody = request.body && mteRelayHeader.bodyIsEncoded;
-  if (decodeBody) {
-    const body = new Uint8Array(await request.arrayBuffer());
-    itemsToDecode.push({ data: body, output: "Uint8Array" });
-  }
-
-  // decode items
-  const result = await decode({
-    id: `decoder.${options.originId}.${options.pairId}`,
-    items: itemsToDecode,
-    type: options.type,
-  });
-
-  // create new url
-  let newRequestUrl = request.url;
-  if (mteRelayHeader.urlIsEncoded) {
-    const uriDecoded = decodeURIComponent(result[0] as string);
-    newRequestUrl = url.origin + "/" + uriDecoded;
-    result.shift();
-  }
-
-  // create new headers
-  const newRequestHeaders = new Headers(request.headers);
-  newRequestHeaders.delete(MTE_RELAY_HEADER);
-  if (mteRelayHeader.headersAreEncoded) {
-    const headers: Record<string, string> = JSON.parse(result[0] as string);
-    for (const entry of Object.entries(headers)) {
-      newRequestHeaders.set(entry[0], entry[1]);
-    }
-    result.shift();
-  }
-
-  // create new body
-  let newRequestBody;
-  if (mteRelayHeader.bodyIsEncoded) {
-    newRequestBody = result[0] as Uint8Array;
-  }
-
-  // todo: handle stream body
-
   const newRequest = new Request(newRequestUrl, {
     method: request.method,
     headers: newRequestHeaders,
