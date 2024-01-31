@@ -7,10 +7,10 @@ import {
   encodeRequest,
   MTE_RELAY_HEADER,
   parseMteRelayHeader,
+  getKyberInitiator,
 } from "./mte";
 import { setRemoteStatus, getRemoteRecordByOrigin } from "./mte/cache";
 import { generateRandomId } from "./utils/generate-id";
-import { getEcdh } from "./utils/ecdh";
 import { MteRelayError } from "./mte/errors";
 import { setCookie, getCookieValue, expireCookie } from "./utils/cookies";
 import { decodeResponse } from "./mte/mte-fetch/response";
@@ -291,26 +291,26 @@ async function pairWithOrigin(origin: string, numberOfPairs?: number) {
     throw new Error("Client ID is not set.");
   }
   const initValues = [];
-  const ecdh = [];
+  const kyber = [];
 
   let i = 0;
   const iMax = numberOfPairs || NUMBER_OF_PAIRS;
   for (; i < iMax; ++i) {
     const pairId = generateRandomId();
     const encoderPersonalizationStr = generateRandomId();
-    const encoderEcdh = await getEcdh("raw");
+    const encoderKyber = getKyberInitiator();
     const decoderPersonalizationStr = generateRandomId();
-    const decoderEcdh = await getEcdh("raw");
+    const decoderKyber = getKyberInitiator();
 
     initValues.push({
       pairId,
       encoderPersonalizationStr,
-      encoderPublicKey: encoderEcdh.publicKey,
+      encoderPublicKey: encoderKyber.publicKey,
       decoderPersonalizationStr,
-      decoderPublicKey: decoderEcdh.publicKey,
+      decoderPublicKey: decoderKyber.publicKey,
     });
 
-    ecdh.push({ encoderEcdh, decoderEcdh });
+    kyber.push({ encoderKyber, decoderKyber });
   }
 
   const _headers: Record<string, string> = {
@@ -337,9 +337,9 @@ async function pairWithOrigin(origin: string, numberOfPairs?: number) {
   // convert response to json
   const pairResponseData: {
     pairId: string;
-    encoderPublicKey: string;
+    encoderSecret: string;
     encoderNonce: string;
-    decoderPublicKey: string;
+    decoderSecret: string;
     decoderNonce: string;
   }[] = await response.json();
 
@@ -347,14 +347,14 @@ async function pairWithOrigin(origin: string, numberOfPairs?: number) {
   for (; j < pairResponseData.length; ++j) {
     const pairInit = initValues[j];
     const pairResponse = pairResponseData[j];
-    const _ecdh = ecdh[j];
+    const _kyber = kyber[j];
 
     // create entropy
-    const encoderEntropy = await _ecdh.encoderEcdh.computeSharedSecret(
-      pairResponse.decoderPublicKey
+    const encoderEntropy = _kyber.encoderKyber.decryptSecret(
+      pairResponse.decoderSecret
     );
-    const decoderEntropy = await _ecdh.decoderEcdh.computeSharedSecret(
-      pairResponse.encoderPublicKey
+    const decoderEntropy = _kyber.decoderKyber.decryptSecret(
+      pairResponse.encoderSecret
     );
 
     // create encoder/decoder

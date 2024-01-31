@@ -10,6 +10,10 @@ export {
   decode,
   encodeChunks,
   decodeChunks,
+  getKyberInitiator,
 } from "./mte-helpers";
 export { MTE_ENCODED_HEADERS_HEADER, MTE_RELAY_HEADER } from "./constants";
-export { formatMteRelayHeader, parseMteRelayHeader } from "./mte-fetch/format-mte-info-header";
+export {
+  formatMteRelayHeader,
+  parseMteRelayHeader,
+} from "./mte-fetch/format-mte-info-header";

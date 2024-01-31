@@ -8,6 +8,9 @@ import {
   MteStatus,
   MteArrStatus,
   MteStrStatus,
+  MteKyber,
+  MteKyberStatus,
+  MteKyberStrength,
 } from "mte";
 import {
   RemoteRecord,
@@ -405,4 +408,46 @@ function drbgReseedCheck(encdec: EncDec) {
   if (reseedIsRequired) {
     throw new MteRelayError("DRBG reseed is required.");
   }
+}
+
+export function getKyberInitiator() {
+  const initiator = new MteKyber(mteWasm, MteKyberStrength.K512);
+  const keyPair = initiator.createKeypair();
+  if (keyPair.status !== MteKyberStatus.success) {
+    throw new Error("Initiator: Failed to create the key pair.");
+  }
+  const publicKey = u8ToHex(keyPair.result1!);
+
+  function decryptSecret(encryptedSecretHex: string) {
+    const encryptedSecret = hexToU8(encryptedSecretHex);
+    const result = initiator.decryptSecret(encryptedSecret);
+    if (result.status !== MteKyberStatus.success) {
+      throw new Error("Initiator: Failed to decrypt the secret.");
+    }
+    // const secret = u8ToHex(result.result1!);
+    return result.result1!;
+  }
+
+  return {
+    publicKey,
+    decryptSecret,
+  };
+}
+
+function u8ToHex(uint8Array: Uint8Array): string {
+  let hexString = "";
+  for (let i = 0; i < uint8Array.length; i++) {
+    const byteHex = uint8Array[i].toString(16).padStart(2, "0");
+    hexString += byteHex;
+  }
+  return hexString;
+}
+
+function hexToU8(hexString: string): Uint8Array {
+  const uint8Array = new Uint8Array(hexString.length / 2);
+  for (let i = 0; i < hexString.length; i += 2) {
+    const byte = parseInt(hexString.substring(i, i + 2), 16);
+    uint8Array[i / 2] = byte;
+  }
+  return uint8Array;
 }
