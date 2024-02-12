@@ -422,7 +422,7 @@ export function getKyberInitiator() {
     const encryptedSecret = b64ToU8(encryptedSecretHex);
     const result = initiator.decryptSecret(encryptedSecret);
     if (result.status !== MteKyberStatus.success) {
-      throw new Error("Initiator: Failed to decrypt the secret.");
+      throw new Error("Failed to decrypt the secret.");
     }
     // const secret = u8ToHex(result.result1!);
     return result.result1!;
@@ -445,12 +445,13 @@ function u8ToB64(bytes: Uint8Array): string {
 function b64ToU8(base64: string): Uint8Array {
   const isBrowser = typeof window !== "undefined";
   if (isBrowser) {
-    const uint8Array = new Uint8Array(base64.length / 2);
-    for (let i = 0; i < base64.length; i += 2) {
-      const byte = parseInt(base64.substring(i, i + 2), 16);
-      uint8Array[i / 2] = byte;
+    const binaryString = atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
     }
-    return uint8Array;
+    return bytes;
   }
   return new Uint8Array(Buffer.from(base64, "base64"));
 }
