@@ -1,28 +1,26 @@
 import path from "path";
 import typescript from "@rollup/plugin-typescript";
-import { nodeResolve } from "@rollup/plugin-node-resolve";
 
 /** @type {import('vite').UserConfig} */
 export default {
   build: {
-    manifest: true,
-    minify: false,
+    manifest: false,
+    minify: true,
     reportCompressedSize: true,
     lib: {
       entry: path.resolve(__dirname, "src/index.ts"),
       fileName: "index",
       formats: ["es", "cjs"],
-      name: "mte-browser-translator",
+      name: "mte-relay-browser",
     },
     rollupOptions: {
-      external: [/^mte?/], // the "mte" library is a peer dependency, but the "mte-helpers" library can be a full dependency of this package
+      external: [/^mte?/], // the "mte" library is a peer dependency
       plugins: [
         typescript({
           sourceMap: false,
           declaration: true,
-          outDir: "dist",
+          outDir: "dist/types",
         }),
-        nodeResolve(),
       ],
     },
   },

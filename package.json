@@ -18,18 +18,21 @@
     "vite": "^3.1.0"
   },
   "peerDependencies": {
-    "mte": "^4.0.0"
+    "mte": "npm:@eclypses/tblackman-llc-mte-relay-demo-kyber-test@^4.0.0"
   },
   "files": [
     "dist"
   ],
   "exports": {
-    ".": "./dist/index.js",
-    "./cjs": "./dist/index.cjs"
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
   },
   "main": "./dist/index.js",
   "repository": {
     "type": "git",
     "url": "https://github.com/Eclypses/mte-relay-browser"
-  }
+  },
+  "types": "./dist/types/index.d.ts"
 }
