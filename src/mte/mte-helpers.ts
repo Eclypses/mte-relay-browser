@@ -132,7 +132,7 @@ type EncDecTypes = "MTE" | "MKE";
  * - Get encoder from pool
  * - Restore state to encoder
  * - Perform Next State Generation trick
- *    - Encode "eclypses"
+ *    - Encode empty string ""
  *    - Save "next" state to cache
  *    - Restore Encoder to original state (from first step)
  * - Encode payload
@@ -400,11 +400,11 @@ function restoreMteState(encdec: EncDec, state: string): void {
 // Checks if DRBG reseed is required for any encoder or decoder
 function drbgReseedCheck(encdec: EncDec) {
   const drbg = encdec.getDrbg();
-  const threshhold = Number(
+  const threshold = Number(
     String(encdec.getDrbgsReseedInterval(drbg)).substring(0, 15)
   );
   const counter = Number(String(encdec.getReseedCounter()).substring(0, 15));
-  const reseedIsRequired = counter / threshhold > 0.9;
+  const reseedIsRequired = counter / threshold > 0.9;
   if (reseedIsRequired) {
     throw new MteRelayError("DRBG reseed is required.");
   }
@@ -416,10 +416,10 @@ export function getKyberInitiator() {
   if (keyPair.status !== MteKyberStatus.success) {
     throw new Error("Initiator: Failed to create the key pair.");
   }
-  const publicKey = u8ToHex(keyPair.result1!);
+  const publicKey = u8ToB64(keyPair.result1!);
 
   function decryptSecret(encryptedSecretHex: string) {
-    const encryptedSecret = hexToU8(encryptedSecretHex);
+    const encryptedSecret = b64ToU8(encryptedSecretHex);
     const result = initiator.decryptSecret(encryptedSecret);
     if (result.status !== MteKyberStatus.success) {
       throw new Error("Initiator: Failed to decrypt the secret.");
@@ -434,20 +434,23 @@ export function getKyberInitiator() {
   };
 }
 
-function u8ToHex(uint8Array: Uint8Array): string {
-  let hexString = "";
-  for (let i = 0; i < uint8Array.length; i++) {
-    const byteHex = uint8Array[i].toString(16).padStart(2, "0");
-    hexString += byteHex;
+function u8ToB64(bytes: Uint8Array): string {
+  const isBrowser = typeof window !== "undefined";
+  if (isBrowser) {
+    return btoa(String.fromCharCode.apply(null, bytes as unknown as number[]));
   }
-  return hexString;
+  return Buffer.from(bytes).toString("base64");
 }
 
-function hexToU8(hexString: string): Uint8Array {
-  const uint8Array = new Uint8Array(hexString.length / 2);
-  for (let i = 0; i < hexString.length; i += 2) {
-    const byte = parseInt(hexString.substring(i, i + 2), 16);
-    uint8Array[i / 2] = byte;
+function b64ToU8(base64: string): Uint8Array {
+  const isBrowser = typeof window !== "undefined";
+  if (isBrowser) {
+    const uint8Array = new Uint8Array(base64.length / 2);
+    for (let i = 0; i < base64.length; i += 2) {
+      const byte = parseInt(base64.substring(i, i + 2), 16);
+      uint8Array[i / 2] = byte;
+    }
+    return uint8Array;
   }
-  return uint8Array;
+  return new Uint8Array(Buffer.from(base64, "base64"));
 }
