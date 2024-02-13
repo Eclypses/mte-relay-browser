@@ -18,7 +18,7 @@
     "vite": "^3.1.0"
   },
   "peerDependencies": {
-    "mte": "npm:@eclypses/tblackman-llc-mte-relay-demo-kyber-test@^4.0.0"
+    "mte": ">=3.0.0 <5.0.0"
   },
   "files": [
     "dist"
