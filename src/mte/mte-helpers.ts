@@ -418,13 +418,13 @@ export function getKyberInitiator() {
   }
   const publicKey = u8ToB64(keyPair.result1!);
 
-  function decryptSecret(encryptedSecretHex: string) {
-    const encryptedSecret = b64ToU8(encryptedSecretHex);
+  function decryptSecret(encryptedSecretB64: string) {
+    const encryptedSecret = b64ToU8(encryptedSecretB64);
     const result = initiator.decryptSecret(encryptedSecret);
     if (result.status !== MteKyberStatus.success) {
       throw new Error("Failed to decrypt the secret.");
     }
-    // const secret = u8ToHex(result.result1!);
+    // const secret = u8ToB64(result.result1!);
     return result.result1!;
   }
 
