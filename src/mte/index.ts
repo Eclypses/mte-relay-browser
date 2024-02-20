@@ -8,8 +8,6 @@ export {
   instantiateDecoder,
   encode,
   decode,
-  encodeChunks,
-  decodeChunks,
   getKyberInitiator,
 } from "./mte-helpers";
 export { MTE_ENCODED_HEADERS_HEADER, MTE_RELAY_HEADER } from "./constants";

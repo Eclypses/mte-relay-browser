@@ -147,14 +147,13 @@ export async function encode(options: {
     output: "B64" | "Uint8Array";
   }[];
 }) {
-  const encoder = getEncoderFromPool(options.type, mteWasm);
   const currentState = await getEncDecState(options.id);
   if (!currentState) {
-    returnEncoderToPool(encoder);
     throw new MteRelayError("State not found.", {
       stateId: options.id,
     });
   }
+  const encoder = getEncoderFromPool(options.type, mteWasm);
   restoreMteState(encoder, currentState);
   // nextState generation + save nextState in cache
   if (options.type === "MKE") {
@@ -267,102 +266,6 @@ export async function decode(options: {
   returnDecoderToPool(decoder);
   await setEncDecState(options.id, state);
   return decodeResults;
-}
-
-/**
- * Use Mke Chunking mode to start a session and chunk all data. Call finishEncrypt() to end session.
- *
- * @param {string} stateId - The ID of the state to use for encoding.
- * @returns An object containing functions to encode data in chunks and finish the encoding process.
- *
- * @throws {MteRelayError} Throws an error if the state specified by stateId is not found.
- *
- * @example
- * const { encodeChunk, finishEncrypt } = await mkeEncodeChunks("stateId");
- * let decoded = encodeChunk(x);
- * decoded = encodeChunk(x);
- * finishEncrypt();
- */
-
-export async function encodeChunks(stateId: string) {
-  const encoder = getEncoderFromPool("MKE", mteWasm) as MteMkeEnc;
-  const currentState = await getEncDecState(stateId);
-  if (!currentState) {
-    throw new MteRelayError("State not found.", { stateId });
-  }
-  restoreMteState(encoder, currentState);
-
-  // nextState generation + save nextState in cache
-  const nextStateResult = encoder.encodeStr("");
-  validateStatusIsSuccess(nextStateResult.status, encoder);
-  const nextState = getMteState(encoder);
-  setEncDecState(stateId, nextState).catch((error) => {
-    throw new MteRelayError("Failed to save encoder stateId.", {
-      stateId,
-      error: (error as Error).message,
-    });
-  });
-  restoreMteState(encoder, currentState);
-
-  encoder.startEncrypt();
-
-  function finishEncrypt() {
-    const result = encoder.finishEncrypt();
-    validateStatusIsSuccess(result.status, encoder);
-    returnEncoderToPool(encoder);
-  }
-
-  return {
-    encodeChunk: encoder.encryptChunk,
-    finishEncrypt,
-  };
-}
-
-/**
- * Use Mke Chunking mode to start a session and chunk all data. Call finishDecrypt() to end session.
- *
- * @param {string} stateId - The ID of the state to use for encoding.
- * @returns An object containing functions to encode data in chunks and finish the encoding process.
- *
- * @throws {MteRelayError} Throws an error if the state specified by stateId is not found.
- *
- * @example
- * const { decodeChunk, finishDecrypt } = await mkeDecodeChunks("stateId");
- * let decoded = decodeChunk(x);
- * decoded = decodeChunk(x);
- * finishDecrypt();
- *
- */
-export async function decodeChunks(stateId: string) {
-  const decoder = getDecoderFromPool("MKE", mteWasm) as MteMkeDec;
-  const currentState = await getEncDecState(stateId);
-  if (!currentState) {
-    throw new MteRelayError("State not found.", {
-      stateId: stateId,
-    });
-  }
-  restoreMteState(decoder, currentState);
-  drbgReseedCheck(decoder);
-
-  decoder.startDecrypt();
-
-  async function finishDecrypt() {
-    const result = decoder.finishDecrypt();
-    validateStatusIsSuccess(result.status, decoder);
-    const nextState = getMteState(decoder);
-    setEncDecState(stateId, nextState).catch((error) => {
-      throw new MteRelayError("Failed to save encoder stateId.", {
-        stateId,
-        error: (error as Error).message,
-      });
-    });
-    returnDecoderToPool(decoder);
-  }
-
-  return {
-    decodeChunk: decoder.decryptChunk,
-    finishDecrypt,
-  };
 }
 
 // Validate MteStatus is successful
