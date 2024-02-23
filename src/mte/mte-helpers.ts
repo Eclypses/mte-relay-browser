@@ -29,6 +29,7 @@ import {
 } from "./encoder-decoder-pools";
 
 let mteWasm: MteWasm;
+let finishEncryptBytes = 0;
 
 // init MteWasm
 // update cache with custom save/take state methods (if provided)
@@ -62,10 +63,12 @@ export async function instantiateMteWasm(options: {
   }
   fillEncDecPools({
     mteWasm,
-
     mkePoolSize: options.mkePoolSize,
     mtePoolSize: options.mtePoolSize,
   });
+  const mkeEncoder = getEncoderFromPool("MKE", mteWasm);
+  finishEncryptBytes = (mkeEncoder as MteMkeEnc).encryptFinishBytes();
+  returnEncoderToPool(mkeEncoder);
 }
 
 /**
