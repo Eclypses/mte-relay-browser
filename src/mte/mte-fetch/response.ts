@@ -34,9 +34,7 @@ export async function decodeResponse(
   // get body to decode
   if (relayOptions.bodyIsEncoded && !!response.body) {
     const u8 = new Uint8Array(await response.arrayBuffer());
-    if (u8.length > 260) {
-      itemsToDecode.push({ data: u8, output: "Uint8Array" });
-    }
+    itemsToDecode.push({ data: u8, output: "Uint8Array" });
   }
 
   // decode items
