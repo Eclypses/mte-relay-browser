@@ -239,6 +239,10 @@ export async function decode(options: {
   const decodeResults: (String | Uint8Array)[] = [];
   try {
     for (const item of options.items) {
+      if (item.data.length === finishEncryptBytes && options.type === "MKE") {
+        // skip decode - it's just the finishEncryptBytes, but no actual data
+        continue;
+      }
       let decodeResult: MteArrStatus | MteStrStatus;
       if (item.data instanceof Uint8Array) {
         if (item.output === "Uint8Array") {
