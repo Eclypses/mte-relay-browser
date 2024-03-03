@@ -18,7 +18,7 @@ import { decodeResponse } from "./mte/mte-fetch/response";
 let CLIENT_ID: string | null;
 let NUMBER_OF_PAIRS = 5;
 let DEFAULT_ENCODE_TYPE: "MTE" | "MKE" = "MKE";
-const CLIENT_ID_COOKIE = "hPqQJLzMbpKGN7OE";
+const CLIENT_ID_COOKIE = "mteclientid";
 
 /**
  * Instantiates the MTE WebAssembly module with the given options.
@@ -56,6 +56,7 @@ export async function instantiateMteWasm(options: {
 }
 
 type MteRequestOptions = {
+  encodeUrl: boolean;
   encodeHeaders: boolean | string[];
   encodeType: "MTE" | "MKE";
 };
@@ -65,7 +66,7 @@ type MteRequestOptions = {
 export async function mteFetch(
   url: RequestInfo,
   options?: RequestInit,
-  mteOptions?: MteRequestOptions
+  mteOptions?: Partial<MteRequestOptions>
 ) {
   return await sendMteRequest(url, options, mteOptions);
 }
@@ -74,7 +75,7 @@ export async function mteFetch(
 async function sendMteRequest(
   url: RequestInfo,
   options?: RequestInit,
-  mteOptions?: MteRequestOptions,
+  mteOptions?: Partial<MteRequestOptions>,
   requestOptions?: {
     isLastAttempt?: boolean;
     revalidateServer?: boolean;
@@ -101,6 +102,7 @@ async function sendMteRequest(
 
     // init options
     const _mteOptions: MteRequestOptions = {
+      encodeUrl: mteOptions?.encodeUrl ?? true,
       encodeHeaders: mteOptions?.encodeHeaders ?? true,
       encodeType: mteOptions?.encodeType || DEFAULT_ENCODE_TYPE,
     };
@@ -141,8 +143,8 @@ async function sendMteRequest(
 
     // if it's pending, recheck every (100 * i)ms
     if (serverRecord.status === "pending") {
-      for (let i = 0; i < 20; ++i) {
-        await sleep((1 + i) * 100);
+      for (let i = 1; i < 20; ++i) {
+        await sleep(i * 100);
         serverRecord = await getRemoteRecordByOrigin(remoteOrigin);
         if (serverRecord.status === "paired") {
           break;
@@ -169,9 +171,11 @@ async function sendMteRequest(
      */
     const encodedRequest = await encodeRequest(_request, {
       pairId,
-      clientId: serverRecord.clientId,
       type: _mteOptions.encodeType,
       originId: serverRecord.origin,
+      clientId: serverRecord.clientId,
+      encodeUrl: _mteOptions.encodeUrl,
+      encodeHeaders: _mteOptions.encodeHeaders,
     });
 
     /**

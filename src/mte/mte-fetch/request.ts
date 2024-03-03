@@ -12,7 +12,6 @@ export async function encodeRequest(
     type: EncDecType;
     encodeUrl?: boolean;
     encodeHeaders?: boolean | string[];
-    encodeBody?: boolean;
   }
 ): Promise<Request> {
   const itemsToEncode: {
@@ -31,10 +30,6 @@ export async function encodeRequest(
   // get headers to encode
   const newRequestHeaders = new Headers(request.headers);
   const headersToEncode: Record<string, string> = {};
-  const ct = request.headers.get("content-type");
-  if (ct) {
-    headersToEncode["content-type"] = ct;
-  }
   let encodeHeaders = options.encodeHeaders ?? true;
   if (encodeHeaders) {
     if (Array.isArray(options.encodeHeaders)) {
@@ -52,7 +47,12 @@ export async function encodeRequest(
       }
     }
   }
+  const ct = request.headers.get("content-type");
+  if (ct) {
+    headersToEncode["content-type"] = ct;
+  }
   if (Object.keys(headersToEncode).length > 0) {
+    encodeHeaders = true;
     const headerString = JSON.stringify(headersToEncode);
     itemsToEncode.push({ data: headerString, output: "B64" });
   } else {
@@ -61,8 +61,9 @@ export async function encodeRequest(
 
   // get body to encode
   const body = new Uint8Array(await request.arrayBuffer());
-  const encodeBody = (options.encodeBody ?? true) && body.byteLength > 0;
-  if (encodeBody) {
+  let bodyIsEncoded = false;
+  if (body.byteLength > 0) {
+    bodyIsEncoded = true;
     itemsToEncode.push({ data: body, output: "Uint8Array" });
   }
 
@@ -87,8 +88,8 @@ export async function encodeRequest(
     formatMteRelayHeader({
       type: options.type,
       urlIsEncoded: encodeUrl,
-      headersAreEncoded: !!encodeHeaders,
-      bodyIsEncoded: !!encodeBody,
+      headersAreEncoded: encodeHeaders,
+      bodyIsEncoded: bodyIsEncoded,
       clientId: options.clientId,
       pairId: options.pairId,
     })
@@ -101,7 +102,7 @@ export async function encodeRequest(
 
   // create new request body
   let newRequestBody = request.body ? body : null;
-  if (encodeBody) {
+  if (bodyIsEncoded) {
     newRequestBody = result[0] as Uint8Array;
   }
 
