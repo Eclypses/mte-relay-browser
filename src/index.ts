@@ -21,26 +21,33 @@ import { generateRandomId } from "./utils/generate-id";
 import { MteRelayError } from "./mte/errors";
 import { decodeResponse } from "./mte/mte-fetch/response";
 
-let CLIENT_ID: string | null;
 let NUMBER_OF_PAIRS = 5;
 let DEFAULT_ENCODE_TYPE: "MTE" | "MKE" = "MKE";
+let DEFAULT_ENCODE_URL = true;
+let DEFAULT_ENCODE_HEADERS: boolean | string[] = true;
 
 /**
- * Instantiates the MTE WebAssembly module with the given options.
+ * Initialize the MTE Relay Client with default values.
  *
  * @param {string} options.licenseKey - The license key for the MTE module.
  * @param {string} options.licenseCompany - The name of the licensing company.
- * @param {number} [options.numberEncoderDecoderPairs] - Indicates how many encoder/decoder pairs to create with MTE Relay Servers. Defaults to 5.
- * @param {number} [options.encoderDecoderPoolSize] - Indicates how many encoder/decoder objects to hold in memory at a time. Defaults to 5.
- * @returns {Promise<void>} A promise that resolves after the MTE module is initialized.
+ * @param {number} [options.numberOfPairs] - Number of encoder/decoder pairs to create with MTE Relay Servers. Defaults to 5.
+ * @param {number} [options.mtePoolSize] - How many MTE encoder/decoder objects to hold in memory. Defaults 3.
+ * @param {number} [options.mkePoolSize] - How many MKE encoder/decoder objects to hold in memory. Defaults 6.
+ * @param {string} [options.defaultEncodeType] - The default encoding type to use. Defaults to "MKE".
+ * @param {boolean} [options.encodeUrls] - The default encode URL option. Defaults to true.
+ * @param {boolean | string[]} [options.encodeHeaders] - The default encode headers option. Defaults to true.
+ * @returns {Promise<void>} A promise that resolves once the MTE Relay is initialized.
  */
-export async function instantiateMteWasm(options: {
+export async function initMteRelayClient(options: {
   licenseKey: string;
   licenseCompany: string;
   numberOfPairs?: number;
   mtePoolSize?: number;
   mkePoolSize?: number;
   defaultEncodeType?: "MTE" | "MKE";
+  encodeUrls?: boolean;
+  encodeHeaders?: boolean | string[];
 }) {
   if (options.numberOfPairs) {
     NUMBER_OF_PAIRS = options.numberOfPairs;
@@ -48,13 +55,19 @@ export async function instantiateMteWasm(options: {
   if (options.defaultEncodeType) {
     DEFAULT_ENCODE_TYPE = options.defaultEncodeType;
   }
+  if (options.encodeUrls !== undefined) {
+    DEFAULT_ENCODE_URL = options.encodeUrls;
+  }
+  if (options.encodeHeaders !== undefined) {
+    DEFAULT_ENCODE_HEADERS = options.encodeHeaders;
+  }
+  initializeClientIds();
   await initWasm({
     licenseKey: options.licenseKey,
     companyName: options.licenseCompany,
     mkePoolSize: options.mkePoolSize,
     mtePoolSize: options.mtePoolSize,
   });
-  initializeClientIds();
 }
 
 type MteRequestOptions = {
@@ -104,8 +117,8 @@ async function sendMteRequest(
 
     // init options
     const _mteOptions: MteRequestOptions = {
-      encodeUrl: mteOptions?.encodeUrl ?? true,
-      encodeHeaders: mteOptions?.encodeHeaders ?? true,
+      encodeUrl: mteOptions?.encodeUrl ?? DEFAULT_ENCODE_URL,
+      encodeHeaders: mteOptions?.encodeHeaders ?? DEFAULT_ENCODE_HEADERS,
       encodeType: mteOptions?.encodeType || DEFAULT_ENCODE_TYPE,
     };
 
@@ -217,7 +230,6 @@ async function sendMteRequest(
           origin: remoteOrigin,
           status: "pending",
         });
-        CLIENT_ID = null;
         deleteClientId(remoteOrigin);
         if (requestOptions?.isLastAttempt) {
           throw new Error("Origin is not an MTE Relay server.");
@@ -252,15 +264,14 @@ async function sendMteRequest(
  * If it exists, we assume the origin is an mte translator.
  */
 async function validateRemoteIsMteRelay(origin: string) {
-  const _headers: Record<string, string> = {};
+  const headers = new Headers();
   const clientId = getClientId(origin);
   if (clientId) {
-    _headers[MTE_RELAY_HEADER] = clientId;
+    headers.set(MTE_RELAY_HEADER, clientId);
   }
   const response = await fetch(origin + "/api/mte-relay", {
     method: "HEAD",
-    credentials: "include",
-    headers: _headers,
+    headers,
   });
 
   if (MteRelayError.isMteErrorStatus(response.status)) {
@@ -270,23 +281,26 @@ async function validateRemoteIsMteRelay(origin: string) {
   }
 
   if (!response.ok) {
-    throw new Error("Origin is not an MTE Relay origin.");
+    throw new Error("Origin is not an MTE Relay origin. Response not ok.");
   }
   const mteRelayHeaders = response.headers.get(MTE_RELAY_HEADER);
   if (!mteRelayHeaders) {
-    throw new Error("Origin is not an MTE Relay origin.");
+    throw new Error(
+      "Origin is not an MTE Relay origin. Response missing header."
+    );
   }
   const parsedRelayHeaders = parseMteRelayHeader(mteRelayHeaders);
   if (!parsedRelayHeaders.clientId) {
-    throw new Error(`Response is missing clientId from header.`);
+    throw new Error(
+      `Response is missing clientId from header. Response missing ClientId.`
+    );
   }
-  CLIENT_ID = parsedRelayHeaders.clientId;
+  setClientId(origin, parsedRelayHeaders.clientId);
   const remoteRecord = await setRemoteStatus({
     origin,
     status: "pending",
     clientId: parsedRelayHeaders.clientId,
   });
-  setClientId(remoteRecord.origin, CLIENT_ID);
   return remoteRecord;
 }
 
@@ -294,7 +308,8 @@ async function validateRemoteIsMteRelay(origin: string) {
  * Pair with Server MTE Translator
  */
 async function pairWithOrigin(origin: string, numberOfPairs?: number) {
-  if (!CLIENT_ID) {
+  const clientId = getClientId(origin);
+  if (!clientId) {
     throw new Error("Client ID is not set.");
   }
   const initValues = [];
@@ -320,19 +335,18 @@ async function pairWithOrigin(origin: string, numberOfPairs?: number) {
     kyber.push({ encoderKyber, decoderKyber });
   }
 
-  const _headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  _headers[MTE_RELAY_HEADER] = CLIENT_ID;
-
   const response = await fetch(`${origin}/api/mte-pair`, {
+    headers: {
+      [MTE_RELAY_HEADER]: clientId,
+      "Content-Type": "application/json",
+    },
     method: "POST",
-    headers: _headers,
-    credentials: "include",
     body: JSON.stringify(initValues),
   });
   if (!response.ok) {
-    throw new Error("Failed to pair with server MTE Translator.");
+    throw new Error(
+      "Failed to pair with server MTE Translator. Response not ok."
+    );
   }
   const mteRelayHeaders = response.headers.get(MTE_RELAY_HEADER);
   if (!mteRelayHeaders) {
