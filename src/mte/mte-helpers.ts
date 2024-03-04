@@ -16,7 +16,6 @@ import {
   RemoteRecord,
   addPairIdToQueue,
   getEncDecState,
-  setCacheFunction,
   setEncDecState,
 } from "./cache";
 import { MteRelayError } from "./errors";
@@ -57,9 +56,6 @@ export async function instantiateMteWasm(options: {
     const status = mteBase.getStatusName(licenseStatus);
     const message = mteBase.getStatusDescription(licenseStatus);
     throw new Error(`Error with MTE License.\n${status}: ${message}`);
-  }
-  if (options.saveState && options.takeState) {
-    setCacheFunction(options.takeState, options.saveState);
   }
   fillEncDecPools({
     mteWasm,
