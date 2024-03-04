@@ -13,7 +13,7 @@ import {
   MteKyberStrength,
 } from "mte";
 import {
-  RemoteRecord,
+  OriginStatus,
   addPairIdToQueue,
   getEncDecState,
   setEncDecState,
@@ -36,8 +36,8 @@ let finishEncryptBytes = 0;
 export async function instantiateMteWasm(options: {
   licenseKey: string;
   companyName: string;
-  saveState?: (key: string, value: RemoteRecord | string) => Promise<void>;
-  takeState?: (key: string) => Promise<string | RemoteRecord | undefined>;
+  saveState?: (key: string, value: OriginStatus | string) => Promise<void>;
+  takeState?: (key: string) => Promise<string | OriginStatus | undefined>;
   mkePoolSize?: number;
   mtePoolSize?: number;
 }) {
@@ -91,10 +91,7 @@ export async function instantiateEncoder(options: {
   const state = getMteState(encoder);
   returnEncoderToPool(encoder);
   await setEncDecState(`encoder.${options.origin}.${options.pairId}`, state);
-  await addPairIdToQueue({
-    origin: options.origin,
-    pairId: options.pairId,
-  });
+  addPairIdToQueue(options.origin, options.pairId);
 }
 
 /**

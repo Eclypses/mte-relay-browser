@@ -7,7 +7,7 @@ export async function encodeRequest(
   request: Request,
   options: {
     clientId: string;
-    originId: string;
+    origin: string;
     pairId: string;
     type: EncDecType;
     encodeUrl?: boolean;
@@ -69,7 +69,7 @@ export async function encodeRequest(
 
   // encode items
   const result = await encode({
-    id: `encoder.${options.originId}.${options.pairId}`,
+    id: `encoder.${options.origin}.${options.pairId}`,
     items: itemsToEncode,
     type: options.type,
   });

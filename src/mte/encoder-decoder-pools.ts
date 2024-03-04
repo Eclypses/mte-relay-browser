@@ -13,8 +13,8 @@ const mkeDecoderPool: MteMkeDec[] = [];
 /**
  * Default max pool size.
  */
-let mtePoolSize = 3;
-let mkePoolSize = 6;
+let mtePoolSize = 2;
+let mkePoolSize = 5;
 
 /**
  * Fill pools with correct amount of default

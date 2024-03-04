@@ -1,40 +1,40 @@
-const cache = new Map();
+import { getCacheItem, setCacheItem, deleteCacheItem } from "./cache";
 
-const localStorageKey = "mteRelayClientIds";
-
-// initialize cache from localStorage
-export function initializeClientIds() {
-  if (!window) {
-    return;
-  }
-  const cacheString = localStorage.getItem(localStorageKey);
-  if (cacheString) {
-    const parsed = JSON.parse(cacheString);
-    for (const key in parsed) {
-      cache.set(key, parsed[key]);
-    }
-  }
-}
+const useLocalStorage = typeof window !== "undefined" && window.localStorage;
 
 // get clientId from cache
 export function getClientId(origin: string) {
-  return cache.get(origin) as string | undefined;
+  const key = prefixKey(origin);
+  let id: string | null | undefined = undefined;
+  id = getCacheItem<string | undefined>(key);
+  if (!id && useLocalStorage) {
+    id = localStorage.getItem(key);
+    if (id) {
+      setCacheItem(key, id);
+    }
+  }
+  return id;
 }
 
 // set clientId in cache
-export function setClientId(serverOrigin: string, clientId: string) {
-  cache.set(serverOrigin, clientId);
-  localStorage.setItem(
-    localStorageKey,
-    JSON.stringify(Object.fromEntries(cache))
-  );
+export function setClientId(origin: string, clientId: string) {
+  const key = prefixKey(origin);
+  setCacheItem(key, clientId);
+  if (useLocalStorage) {
+    localStorage.setItem(key, clientId);
+  }
 }
 
 // delete clientId
-export function deleteClientId(serverOrigin: string) {
-  cache.delete(serverOrigin);
-  localStorage.setItem(
-    localStorageKey,
-    JSON.stringify(Object.fromEntries(cache))
-  );
+export function deleteClientId(origin: string) {
+  const key = prefixKey(origin);
+  deleteCacheItem(key);
+  if (useLocalStorage) {
+    localStorage.removeItem(key);
+  }
+}
+
+// prefix keys with 'clientid:'
+function prefixKey(key: string) {
+  return `clientid:${key}`;
 }

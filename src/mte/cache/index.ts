@@ -1,15 +1,9 @@
 export { setEncDecState, getEncDecState } from "./state-cache";
+export { getClientId, setClientId, deleteClientId } from "./client-ids";
+export { getOriginStatus, setOriginStatus } from "./origin-status";
 export {
-  initializeClientIds,
-  getClientId,
-  setClientId,
-  deleteClientId,
-} from "./client-ids";
-export {
-  getRemoteRecordByOrigin,
-  setRemoteStatus,
   addPairIdToQueue,
+  deletePairIdFromQueue,
   getNextPairIdFromQueue,
-  deleteIdFromQueue,
-} from "./origin-records";
-export type { RemoteRecord } from "./origin-records";
+} from "./pair-ids";
+export type { OriginStatus } from "./origin-status";

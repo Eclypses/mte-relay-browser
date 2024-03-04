@@ -2,24 +2,22 @@ import {
   instantiateDecoder,
   instantiateEncoder,
   instantiateMteWasm as initWasm,
-  getNextPairIdFromQueue,
-  deleteIdFromQueue,
   encodeRequest,
   MTE_RELAY_HEADER,
   parseMteRelayHeader,
   getKyberInitiator,
-} from "./mte";
-import {
-  setRemoteStatus,
-  getRemoteRecordByOrigin,
-  initializeClientIds,
   getClientId,
   setClientId,
   deleteClientId,
-} from "./mte/cache";
+  deletePairIdFromQueue,
+  getNextPairIdFromQueue,
+  getOriginStatus,
+  setOriginStatus,
+} from "./mte";
 import { generateRandomId } from "./utils/generate-id";
 import { MteRelayError } from "./mte/errors";
 import { decodeResponse } from "./mte/mte-fetch/response";
+import { OriginStatus } from "./mte/cache";
 
 let NUMBER_OF_PAIRS = 5;
 let DEFAULT_ENCODE_TYPE: "MTE" | "MKE" = "MKE";
@@ -29,11 +27,11 @@ let DEFAULT_ENCODE_HEADERS: boolean | string[] = true;
 /**
  * Initialize the MTE Relay Client with default values.
  *
- * @param {string} options.licenseKey - The license key for the MTE module.
- * @param {string} options.licenseCompany - The name of the licensing company.
+ * @param {string} options.licenseKey - An MTE License Key. This can be found in the Eclypses Developer Portal.
+ * @param {string} options.licenseCompany - The company name your MTE module is licensed to. This can be found in the Eclypses Developer Portal.
  * @param {number} [options.numberOfPairs] - Number of encoder/decoder pairs to create with MTE Relay Servers. Defaults to 5.
- * @param {number} [options.mtePoolSize] - How many MTE encoder/decoder objects to hold in memory. Defaults 3.
- * @param {number} [options.mkePoolSize] - How many MKE encoder/decoder objects to hold in memory. Defaults 6.
+ * @param {number} [options.mtePoolSize] - How many MTE encoder/decoder objects to hold in memory. Defaults 2.
+ * @param {number} [options.mkePoolSize] - How many MKE encoder/decoder objects to hold in memory. Defaults 5.
  * @param {string} [options.defaultEncodeType] - The default encoding type to use. Defaults to "MKE".
  * @param {boolean} [options.encodeUrls] - The default encode URL option. Defaults to true.
  * @param {boolean | string[]} [options.encodeHeaders] - The default encode headers option. Defaults to true.
@@ -61,7 +59,6 @@ export async function initMteRelayClient(options: {
   if (options.encodeHeaders !== undefined) {
     DEFAULT_ENCODE_HEADERS = options.encodeHeaders;
   }
-  initializeClientIds();
   await initWasm({
     licenseKey: options.licenseKey,
     companyName: options.licenseCompany,
@@ -76,8 +73,17 @@ type MteRequestOptions = {
   encodeType: "MTE" | "MKE";
 };
 
-// send encoded request
-// if it throws an MTE error, try again 1 time
+/**
+ * Send an MTE encoded request.
+ *
+ * @param url Request URL. Same as Fetch API.
+ * @param options Request options. Same as Fetch API.
+ * @param mteOptions MTE Request options.
+ * @param {"MTE" | "MKE"} mteOptions.encodeType The encoding type to use. Default value set in initMteRelayClient.
+ * @param {boolean} mteOptions.encodeUrl Whether to encode the URL. Default value set in initMteRelayClient.
+ * @param {boolean | string[]} mteOptions.encodeHeaders Whether to encode the headers. Default value set in initMteRelayClient.
+ * @returns {Response} A decrypted Response object.
+ */
 export async function mteFetch(
   url: RequestInfo,
   options?: RequestInit,
@@ -97,7 +103,7 @@ async function sendMteRequest(
   }
 ): Promise<Response> {
   let pairId = "";
-  let remoteOrigin = "";
+  let requestOrigin = "";
 
   try {
     // use or create Request object
@@ -110,10 +116,10 @@ async function sendMteRequest(
     const _url = new URL(_request.url);
 
     // preserve server origin, incase request fails and we need to resend
-    remoteOrigin = _url.origin;
+    requestOrigin = _url.origin;
 
     // validate server is MTE Relay server
-    let serverRecord = await getRemoteRecordByOrigin(remoteOrigin);
+    let originStatus = await getOriginStatus(requestOrigin);
 
     // init options
     const _mteOptions: MteRequestOptions = {
@@ -123,63 +129,52 @@ async function sendMteRequest(
     };
 
     // validate remote is MTE Relay Server and pair with it
-    if (
-      serverRecord.status === "validate-now" ||
-      requestOptions?.revalidateServer
-    ) {
+    if (originStatus === "validate" || requestOptions?.revalidateServer) {
       try {
-        serverRecord = await validateRemoteIsMteRelay(serverRecord.origin);
+        originStatus = await validateRemoteIsMteRelay(requestOrigin);
       } catch (error: any) {
         if (MteRelayError.isMteErrorStatus(error.status)) {
           throw new MteRelayError(
             MteRelayError.getStatusErrorMessages(error.status)!
           );
         } else {
-          setRemoteStatus({
-            origin: serverRecord.origin,
-            status: "invalid",
-          });
+          setOriginStatus(requestOrigin, "invalid");
           throw new Error("Origin is not an MTE Relay server.");
         }
       }
-      await pairWithOrigin(serverRecord.origin).catch((error) => {
-        setRemoteStatus({
-          origin: serverRecord.origin,
-          status: "invalid",
-        });
+      await pairWithOrigin(requestOrigin).catch((error) => {
+        setOriginStatus(requestOrigin, "invalid");
         throw error;
       });
-      serverRecord = await setRemoteStatus({
-        origin: serverRecord.origin,
-        status: "paired",
-        clientId: serverRecord.clientId!,
-      });
+      originStatus = "paired";
+      setOriginStatus(requestOrigin, originStatus);
     }
 
     // if it's pending, recheck every (100 * i)ms
-    if (serverRecord.status === "pending") {
+    if (originStatus === "pending") {
       for (let i = 1; i < 20; ++i) {
         await sleep(i * 100);
-        serverRecord = await getRemoteRecordByOrigin(remoteOrigin);
-        if (serverRecord.status === "paired") {
+        originStatus = await getOriginStatus(requestOrigin);
+        if (originStatus === "paired") {
           break;
         }
-        if (serverRecord.status === "invalid") {
-          throw new Error("Origin is not an MTE Relay server.");
+        if (originStatus === "invalid") {
+          throw new Error("Origin status is invalid.");
         }
       }
-      if (serverRecord.status !== "paired") {
-        throw new Error("Origin is not an MTE Relay server.");
+      if (originStatus !== "paired") {
+        throw new Error("Origin is not paired.");
       }
     }
-    if (serverRecord.status === "invalid") {
+    if (originStatus === "invalid") {
       throw new Error("Origin is not an MTE Relay server.");
     }
-    if (!serverRecord.clientId) {
-      throw new Error("Origin is not an MTE Relay server.");
+    const clientId = getClientId(requestOrigin);
+    if (!clientId) {
+      throw new Error("Origin is missing ClientId");
     }
 
-    pairId = await getNextPairIdFromQueue(serverRecord.origin);
+    pairId = await getNextPairIdFromQueue(requestOrigin);
 
     /**
      * MTE Encode Headers and Body (if they exist)
@@ -187,8 +182,8 @@ async function sendMteRequest(
     const encodedRequest = await encodeRequest(_request, {
       pairId,
       type: _mteOptions.encodeType,
-      originId: serverRecord.origin,
-      clientId: serverRecord.clientId,
+      origin: requestOrigin,
+      clientId: clientId,
       encodeUrl: _mteOptions.encodeUrl,
       encodeHeaders: _mteOptions.encodeHeaders,
     });
@@ -215,22 +210,19 @@ async function sendMteRequest(
     if (!parsedRelayHeaders.clientId) {
       throw new Error(`Response is missing clientId header`);
     }
-    setClientId(serverRecord.origin, parsedRelayHeaders.clientId);
+    setClientId(requestOrigin, parsedRelayHeaders.clientId);
 
     // decode response
     const decodedResponse = await decodeResponse(response, {
-      decoderId: `decoder.${serverRecord.origin}.${parsedRelayHeaders.pairId}`,
+      decoderId: `decoder.${requestOrigin}.${parsedRelayHeaders.pairId}`,
     });
     return decodedResponse;
   } catch (error) {
     if (error instanceof MteRelayError) {
       // serverside secret changed, revalidate server
       if (error.status === 566) {
-        setRemoteStatus({
-          origin: remoteOrigin,
-          status: "pending",
-        });
-        deleteClientId(remoteOrigin);
+        setOriginStatus(requestOrigin, "pending");
+        deleteClientId(requestOrigin);
         if (requestOptions?.isLastAttempt) {
           throw new Error("Origin is not an MTE Relay server.");
         }
@@ -241,8 +233,8 @@ async function sendMteRequest(
       }
 
       // replace this pair with a new one
-      deleteIdFromQueue({ origin, pairId });
-      pairWithOrigin(remoteOrigin, 1);
+      deletePairIdFromQueue(requestOrigin, pairId);
+      pairWithOrigin(requestOrigin, 1);
       if (!requestOptions?.isLastAttempt) {
         return await sendMteRequest(url, options, mteOptions, {
           isLastAttempt: true,
@@ -251,19 +243,20 @@ async function sendMteRequest(
     }
 
     // else return error
-    let message = "An unknown error occurred.";
     if (error instanceof Error) {
       throw error;
     }
-    throw Error(message);
+    throw Error("An unknown error occurred.", {
+      cause: error,
+    });
   }
 }
 
 /**
  * Make a HEAD request to check for x-mte-id response header,
- * If it exists, we assume the origin is an mte translator.
+ * If it exists, we assume the origin is an mte relay server.
  */
-async function validateRemoteIsMteRelay(origin: string) {
+async function validateRemoteIsMteRelay(origin: string): Promise<OriginStatus> {
   const headers = new Headers();
   const clientId = getClientId(origin);
   if (clientId) {
@@ -296,12 +289,8 @@ async function validateRemoteIsMteRelay(origin: string) {
     );
   }
   setClientId(origin, parsedRelayHeaders.clientId);
-  const remoteRecord = await setRemoteStatus({
-    origin,
-    status: "pending",
-    clientId: parsedRelayHeaders.clientId,
-  });
-  return remoteRecord;
+  setOriginStatus(origin, "pending");
+  return "pending";
 }
 
 /**
@@ -365,10 +354,11 @@ async function pairWithOrigin(origin: string, numberOfPairs?: number) {
   }[] = await response.json();
 
   let j = 0;
-  for (; j < pairResponseData.length; ++j) {
+  const jMax = pairResponseData.length;
+  for (; j < jMax; ++j) {
+    const _kyber = kyber[j];
     const pairInit = initValues[j];
     const pairResponse = pairResponseData[j];
-    const _kyber = kyber[j];
 
     // create entropy
     const encoderEntropy = _kyber.encoderKyber.decryptSecret(

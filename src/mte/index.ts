@@ -1,6 +1,5 @@
 // export public available
 
-export { getNextPairIdFromQueue, deleteIdFromQueue } from "./cache";
 export { encodeRequest } from "./mte-fetch/request";
 export {
   instantiateMteWasm,
@@ -15,3 +14,13 @@ export {
   formatMteRelayHeader,
   parseMteRelayHeader,
 } from "./mte-fetch/format-mte-info-header";
+export {
+  getClientId,
+  setClientId,
+  deleteClientId,
+  addPairIdToQueue,
+  deletePairIdFromQueue,
+  getNextPairIdFromQueue,
+  getOriginStatus,
+  setOriginStatus,
+} from "./cache";

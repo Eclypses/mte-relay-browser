@@ -1,11 +1,15 @@
-const cache = new Map();
+import { getCacheItem, setCacheItem } from "./cache";
 
 // save an encoder/decoder state in cache
 export function setEncDecState(id: string, state: string): void {
-  cache.set(id, state);
+  setCacheItem(prefixKey(id), state);
 }
 
 // get an encoder/decoder state from cache, if it exists
 export function getEncDecState(id: string) {
-  return cache.get(id) as string | undefined;
+  return getCacheItem<string>(prefixKey(id));
+}
+
+function prefixKey(key: string) {
+  return `state:${key}`;
 }
