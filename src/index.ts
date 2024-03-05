@@ -43,15 +43,15 @@ export async function initMteRelayClient(options: {
   numberOfPairs?: number;
   mtePoolSize?: number;
   mkePoolSize?: number;
-  defaultEncodeType?: "MTE" | "MKE";
+  encodeType?: "MTE" | "MKE";
   encodeUrls?: boolean;
   encodeHeaders?: boolean | string[];
 }) {
   if (options.numberOfPairs) {
     NUMBER_OF_PAIRS = options.numberOfPairs;
   }
-  if (options.defaultEncodeType) {
-    DEFAULT_ENCODE_TYPE = options.defaultEncodeType;
+  if (options.encodeType) {
+    DEFAULT_ENCODE_TYPE = options.encodeType;
   }
   if (options.encodeUrls !== undefined) {
     DEFAULT_ENCODE_URL = options.encodeUrls;
