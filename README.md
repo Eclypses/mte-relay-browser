@@ -163,7 +163,7 @@ Managed Key Encryption (MKE) is a method using MTE to generate random, single-us
 
 #### When should I use MTE or MKE to encode data?
 
-MTE is the most secure way to encode data, although it does create much larger payloads. Use MTE when you're encoding small, but highly sensitive data, such as passwords, payment details, or protected personal information.
+MTE is the most secure way to encode data, although it does create much larger payloads. Use MTE when you're encoding small (<=5k), but highly sensitive data, such as passwords, payment details, or protected personal information.
 
 MKE is ideal for most general network communications, and is capable of sending large payloads or files as streams of encrypted data.
 
