@@ -7,6 +7,9 @@ const MTE_ERRORS = {
   "DRBG reseed is required.": 564,
   "MTE Status was not successful.": 565,
   "Invalid Client ID header.": 566,
+  "Failed to save decoder stateId.": 567,
+  "Failed to save encoder stateId.": 568,
+  "Missing required header": 569,
 } as const;
 
 const statusCodes: Set<number> = new Set(Object.values(MTE_ERRORS));
