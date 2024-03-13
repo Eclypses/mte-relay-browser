@@ -52,12 +52,13 @@ export async function decodeResponse(
     for (const entry of Object.entries(headers)) {
       newHeaders.set(entry[0], entry[1]);
     }
+    result.shift();
   }
 
   // create new response body
   let newBody: BodyInit | undefined = response.body || undefined;
   if (relayOptions.bodyIsEncoded) {
-    newBody = result[1] as Uint8Array;
+    newBody = result[0] as Uint8Array;
   }
 
   // form new response
